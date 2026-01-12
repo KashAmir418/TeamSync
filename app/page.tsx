@@ -114,53 +114,68 @@ export default function Dashboard() {
         const fetchData = async () => {
             if (!session) return;
 
-            // 1. Fetch Current User Member Profile
-            const { data: profile } = await supabase
-                .from('members')
-                .select('*')
-                .eq('id', session.user.id)
-                .single();
+            try {
+                // 1. Fetch Current User Member Profile
+                const { data: profile, error: profileErr } = await supabase
+                    .from('members')
+                    .select('*')
+                    .eq('id', session.user.id)
+                    .single();
 
-            if (profile) {
-                setCurrentUser(profile);
+                if (profile) {
+                    setCurrentUser(profile);
+                } else if (!profileErr || profileErr.code === 'PGRST116') {
+                    // Auto-create profile if missing (PGRST116 is 'no rows returned')
+                    const { data: newProfile } = await supabase.from('members').insert([{
+                        id: session.user.id,
+                        name: session.user.user_metadata.name || 'Anonymous',
+                        email: session.user.email,
+                        role: 'member',
+                        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`
+                    }]).select().single();
+                    if (newProfile) setCurrentUser(newProfile);
+                }
+
+                // 2. Fetch all Members
+                const { data: membersData } = await supabase.from('members').select('*');
+                if (membersData) setMembers(membersData);
+
+                // 3. Fetch Tasks
+                const { data: tasksData } = await supabase.from('tasks').select('*');
+                if (tasksData) {
+                    setTasks(tasksData.map(t => ({
+                        ...t,
+                        assigneeId: t.assignee_id
+                    })));
+                }
+
+                // 4. Fetch Meetings
+                const { data: meetingsData } = await supabase.from('meetings').select('*');
+                if (meetingsData) {
+                    setMeetings(meetingsData.map(m => ({
+                        ...m,
+                        startTime: m.start_time,
+                        suggestedBy: m.suggested_by
+                    })));
+                }
+
+                // 5. Fetch Mindspace
+                const { data: mindData } = await supabase.from('mindspace_items').select('*').order('created_at', { ascending: false });
+                if (mindData) setMindItems(mindData);
+
+                // 6. Fetch Resources
+                const { data: resData } = await supabase.from('resources').select('*').order('category');
+                if (resData) setResources(resData);
+
+                // 7. Fetch Comments
+                const { data: commentData } = await supabase.from('task_comments').select('*').order('created_at', { ascending: true });
+                if (commentData) setComments(commentData);
+
+            } catch (err) {
+                console.error("Critical error fetching data:", err);
+            } finally {
+                setIsInitialized(true);
             }
-
-            // 2. Fetch all Members
-            const { data: membersData } = await supabase.from('members').select('*');
-            if (membersData) setMembers(membersData);
-
-            // 3. Fetch Tasks
-            const { data: tasksData } = await supabase.from('tasks').select('*');
-            if (tasksData) {
-                setTasks(tasksData.map(t => ({
-                    ...t,
-                    assigneeId: t.assignee_id
-                })));
-            }
-
-            // 4. Fetch Meetings
-            const { data: meetingsData } = await supabase.from('meetings').select('*');
-            if (meetingsData) {
-                setMeetings(meetingsData.map(m => ({
-                    ...m,
-                    startTime: m.start_time,
-                    suggestedBy: m.suggested_by
-                })));
-            }
-
-            // 5. Fetch Mindspace
-            const { data: mindData } = await supabase.from('mindspace_items').select('*').order('created_at', { ascending: false });
-            if (mindData) setMindItems(mindData);
-
-            // 6. Fetch Resources
-            const { data: resData } = await supabase.from('resources').select('*').order('category');
-            if (resData) setResources(resData);
-
-            // 7. Fetch Comments
-            const { data: commentData } = await supabase.from('task_comments').select('*').order('created_at', { ascending: true });
-            if (commentData) setComments(commentData);
-
-            setIsInitialized(true);
         };
 
         // 5. Setup Real-time Subscriptions
@@ -290,16 +305,25 @@ export default function Dashboard() {
         if (editingTask) {
             const { error } = await supabase.from('tasks').update(taskData).eq('id', editingTask.id);
             if (!error) {
-                setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...taskData, assigneeId } : t));
+                setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...taskData, assigneeId } : t));
                 showNotification("Task updated successfully");
+            } else {
+                console.error("Error updating task:", error);
+                showNotification("Error: Could not update task");
             }
             setEditingTask(null);
         } else {
             const { data, error } = await supabase.from('tasks').insert([{ ...taskData, status: 'todo' }]).select();
             if (data && !error) {
-                const newTask = { ...data[0], assigneeId: data[0].assignee_id };
-                setTasks(prev => [...prev, newTask]);
+                const newTask = { ...data[0], id: data[0].id, assigneeId: data[0].assignee_id };
+                setTasks(prev => {
+                    if (prev.find(t => t.id === newTask.id)) return prev;
+                    return [...prev, newTask];
+                });
                 showNotification("Task created successfully");
+            } else {
+                console.error("Error creating task:", error);
+                showNotification("Error: Could not create task. Ensure your profile is active.");
             }
         }
 
