@@ -446,20 +446,29 @@ export default function Dashboard() {
     const handleAddMindItem = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
+        const title = formData.get('title') as string;
+        const description = formData.get('description') as string;
+        const type = formData.get('type') as 'idea' | 'issue';
+
+        if (!title.trim() || !description.trim()) return;
+
         const item = {
-            title: formData.get('title') as string,
-            description: formData.get('description') as string,
-            type: formData.get('type') as 'idea' | 'issue',
+            title,
+            description,
+            type,
             author_id: session?.user.id,
             upvotes: 0
         };
-        const { error } = await supabase.from('mindspace_items').insert([item]);
+
+        const { data, error } = await supabase.from('mindspace_items').insert([item]).select();
         if (error) {
             console.error("Mindspace Error:", error);
             showNotification(`Error: ${error.message}`);
         } else {
-            showNotification(`${item.type === 'idea' ? 'Idea' : 'Issue'} shared!`);
+            showNotification(`${type === 'idea' ? 'Idea' : 'Issue'} shared!`);
+            if (data) setMindItems(prev => [data[0], ...prev]);
             setShowModal(null);
+            e.currentTarget.reset();
         }
     };
 
@@ -485,14 +494,22 @@ export default function Dashboard() {
     const handleAddComment = async (e: React.FormEvent<HTMLFormElement>, taskId: string) => {
         e.preventDefault();
         const input = e.currentTarget.querySelector('input') as HTMLInputElement;
-        if (!input.value.trim()) return;
+        const content = input.value.trim();
+        if (!content) return;
 
-        const { error } = await supabase.from('task_comments').insert([{
+        const { data, error } = await supabase.from('task_comments').insert([{
             task_id: taskId,
             author_id: session?.user.id,
-            content: input.value
-        }]);
-        if (!error) input.value = '';
+            content: content
+        }]).select();
+
+        if (error) {
+            console.error("Comment Error:", error);
+            showNotification(`Error: ${error.message}`);
+        } else {
+            input.value = '';
+            if (data) setComments(prev => [...prev, data[0]]);
+        }
     };
 
     const handleAddResource = async (e: React.FormEvent<HTMLFormElement>) => {
