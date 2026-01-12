@@ -510,11 +510,23 @@ export default function Dashboard() {
         }
     };
 
+    const handleDeleteComment = async (id: string) => {
+        const { error } = await supabase.from('task_comments').delete().eq('id', id);
+        if (error) {
+            showNotification(`Error: ${error.message}`);
+        } else {
+            setComments(prev => prev.filter(c => c.id !== id));
+        }
+    };
+
     const handleAddComment = async (e: React.FormEvent<HTMLFormElement>, taskId: string) => {
         e.preventDefault();
         const input = e.currentTarget.querySelector('input') as HTMLInputElement;
         const content = input.value.trim();
         if (!content) return;
+
+        // Clear input immediately for WhatsApp-like feel
+        input.value = '';
 
         const { data, error } = await supabase.from('task_comments').insert([{
             task_id: taskId,
@@ -525,8 +537,8 @@ export default function Dashboard() {
         if (error) {
             console.error("Comment Error:", error);
             showNotification(`Error: ${error.message}`);
+            // Restore content if failed? Usually better to just notify.
         } else {
-            input.value = '';
             if (data && data[0]) {
                 setComments(prev => {
                     if (prev.find(c => c.id === data[0].id)) return prev;
@@ -918,13 +930,17 @@ export default function Dashboard() {
                     <Modal title="Activity Thread" onClose={() => setShowComments(null)}>
                         <div className="comments-view">
                             <div className="comments-list-full">
-                                {comments.filter(c => c.task_id === showComments).map((comm, idx) => (
-                                    <div key={comm.id} className={`comment-item ${comm.author_id === session?.user.id ? 'own-comment' : ''}`}
-                                        ref={idx === comments.filter(c => c.task_id === showComments).length - 1 ? (el) => el?.scrollIntoView({ behavior: 'smooth' }) : null}
-                                    >
-                                        <img src={getAssignee(comm.author_id)?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comm.author_id}`} alt="" />
+                                {comments.filter(c => c.task_id === showComments).map((comm) => (
+                                    <div key={comm.id} className={`comment-item ${comm.author_id === session?.user.id ? 'own-comment' : ''}`}>
                                         <div className="comment-bubble">
-                                            <p className="comment-author">{getAssignee(comm.author_id)?.name || 'Team Member'}</p>
+                                            <div className="comment-header-row">
+                                                <p className="comment-author">{getAssignee(comm.author_id)?.name || 'Team Member'}</p>
+                                                {(comm.author_id === session?.user.id || isAdmin) && (
+                                                    <button className="delete-comment-btn" onClick={() => handleDeleteComment(comm.id)}>
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
                                             <p className="comment-text">{comm.content}</p>
                                             <p className="comment-time">{new Date(comm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                         </div>
@@ -1033,19 +1049,40 @@ export default function Dashboard() {
         }
 
         /* Comments */
-        .comments-view { display: flex; flex-direction: column; height: 500px; max-height: 70vh; }
-        .comments-list-full { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
-        .comment-item { display: flex; gap: 12px; margin-bottom: 8px; }
-        .comment-item.own-comment { flex-direction: row-reverse; }
-        .comment-item.own-comment .comment-bubble { background: rgba(59, 130, 246, 0.1); border-color: var(--primary); }
-        .comment-item img { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
-        .comment-bubble { background: var(--surface); padding: 12px; border-radius: 12px; flex: 1; border: 1px solid var(--border); max-width: 80%; }
-        .comment-author { font-size: 11px; font-weight: 700; color: var(--primary); margin-bottom: 4px; }
-        .comment-text { font-size: 13px; line-height: 1.5; color: white; }
-        .comment-time { font-size: 9px; color: var(--text-muted); margin-top: 6px; text-align: right; }
-        .comment-input-area { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 12px; background: var(--background); }
-        .comment-input-area input { flex: 1; background: var(--surface); border: 1px solid var(--border); color: white; padding: 10px 16px; border-radius: 20px; outline: none; transition: 0.2s; }
-        .comment-input-area input:focus { border-color: var(--primary); background: var(--surface-hover); }
+        .comments-view { display: flex; flex-direction: column; height: 500px; max-height: 70vh; background: #0b141a; } /* WhatsApp dark background */
+        .comments-list-full { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 4px; }
+        .comment-item { display: flex; width: 100%; margin-bottom: 2px; }
+        .comment-item.own-comment { justify-content: flex-end; }
+        .comment-bubble { 
+            padding: 8px 12px; 
+            border-radius: 8px; 
+            position: relative; 
+            max-width: 85%;
+            background: #202c33; /* WhatsApp recipient bubble */
+            border: none;
+            box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+        }
+        .comment-item.own-comment .comment-bubble { 
+            background: #005c4b; /* WhatsApp sender bubble */
+        }
+        .comment-header-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 2px; }
+        .comment-author { font-size: 11px; font-weight: 700; color: #8696a0; }
+        .comment-item.own-comment .comment-author { color: #53bdeb; }
+        .delete-comment-btn { color: rgba(255,255,255,0.3); padding: 4px; border-radius: 4px; transition: 0.2s; }
+        .delete-comment-btn:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+        .comment-text { font-size: 14px; line-height: 1.4; color: #e9edef; white-space: pre-wrap; word-break: break-word; }
+        .comment-time { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 4px; text-align: right; }
+        .comment-input-area { padding: 10px 16px; display: flex; gap: 8px; background: #202c33; align-items: center; }
+        .comment-input-area input { 
+            flex: 1; 
+            background: #2a3942; 
+            border: none; 
+            color: #d1d7db; 
+            padding: 10px 16px; 
+            border-radius: 8px; 
+            outline: none; 
+            font-size: 14px;
+        }
         .empty-text { text-align: center; color: var(--text-muted); margin-top: 40px; font-style: italic; font-size: 13px; }
       `}</style>
         </div>
