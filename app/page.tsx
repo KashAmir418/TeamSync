@@ -100,6 +100,24 @@ export default function Dashboard() {
     const [comments, setComments] = useState<any[]>([]);
     const [resources, setResources] = useState<any[]>([]);
     const [showComments, setShowComments] = useState<string | null>(null); // task_id
+    const [dbStatus, setDbStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
+
+    useEffect(() => {
+        const checkConnection = async () => {
+            if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+                console.error("Supabase URL is missing in environment!");
+                setDbStatus('offline');
+                return;
+            }
+            try {
+                const { error } = await supabase.from('members').select('count', { count: 'exact', head: true });
+                setDbStatus(error ? 'offline' : 'online');
+            } catch {
+                setDbStatus('offline');
+            }
+        };
+        checkConnection();
+    }, []);
 
     useEffect(() => {
         // Handle Session
@@ -176,8 +194,13 @@ export default function Dashboard() {
                 const { data: commentData } = await supabase.from('task_comments').select('*').order('created_at', { ascending: true });
                 if (commentData) setComments(commentData);
 
-            } catch (err) {
+            } catch (err: any) {
                 console.error("Critical error fetching data:", err);
+                if (err.message === 'Failed to fetch') {
+                    showNotification("Network Error: Check your internet or ad-blocker.");
+                } else {
+                    showNotification(`Sync Error: ${err.message}`);
+                }
             } finally {
                 setIsInitialized(true);
             }
@@ -571,6 +594,10 @@ export default function Dashboard() {
                     <p className="subtitle">{currentTime?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
                 </div>
                 <div className="header-actions">
+                    <div className={`db-status-pill ${dbStatus}`}>
+                        <div className="status-dot"></div>
+                        <span>Supabase: {dbStatus === 'online' ? 'Live' : dbStatus === 'offline' ? 'Blocked' : 'Connecting...'}</span>
+                    </div>
                     <div className="search-bar"><Search size={18} /><input type="text" placeholder="Search tasks..." /></div>
                     <button className="icon-btn"><Bell size={20} /></button>
                     <img src={currentUser?.avatar} className="profile-img-header" alt="" />
@@ -992,6 +1019,12 @@ export default function Dashboard() {
         .checkbox-container { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-muted); cursor: pointer; margin-top: 4px; }
         .checkbox-container input { width: 16px !important; height: 16px !important; margin: 0; cursor: pointer; }
         .member-email { display: flex; align-items: center; justify-content: center; color: var(--primary); font-size: 12px; font-weight: 500; }
+        
+        .db-status-pill { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.05); }
+        .db-status-pill.online { color: #22c55e; }
+        .db-status-pill.offline { color: #ef4444; }
+        .db-status-pill.connecting { color: #f59e0b; }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
         
         /* New Styles */
         .card-actions { display: flex; gap: 4px; }
