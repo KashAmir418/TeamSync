@@ -30,7 +30,8 @@ import {
     ExternalLink,
     Copy,
     MessageCircle,
-    Menu
+    Menu,
+    MessagesSquare
 } from "lucide-react";
 import { TEAM_MEMBERS as INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_MEETINGS, Task, Member, Meeting } from "@/lib/data";
 import { supabase } from "@/lib/supabase";
@@ -99,7 +100,7 @@ export default function Dashboard() {
     const [mindItems, setMindItems] = useState<any[]>([]);
     const [comments, setComments] = useState<any[]>([]);
     const [resources, setResources] = useState<any[]>([]);
-    const [showComments, setShowComments] = useState<string | null>(null); // task_id
+    const [selectedChatTask, setSelectedChatTask] = useState<string | null>(null);
     const [dbStatus, setDbStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
 
     useEffect(() => {
@@ -314,6 +315,7 @@ export default function Dashboard() {
     }
 
     const getAssignee = (id: string) => members.find(m => m.id === id);
+    const getTask = (id: string) => tasks.find(t => t.id === id);
     const isAdmin = currentUser?.role.toLowerCase().includes('admin');
 
     const handleLogout = async () => {
@@ -621,6 +623,10 @@ export default function Dashboard() {
                     <div className="stat-icon" style={{ backgroundColor: '#f59e0b20', color: '#f59e0b' }}><Folder size={24} /></div>
                     <div className="stat-info"><h3>{resources.length}</h3><p>Vault Resources</p></div>
                 </div>
+                <div className="stat-card glass-panel" onClick={() => setActiveTab('chat')} style={{ cursor: 'pointer' }}>
+                    <div className="stat-icon" style={{ backgroundColor: '#ec489920', color: '#ec4899' }}><MessagesSquare size={24} /></div>
+                    <div className="stat-info"><h3>{new Set(comments.map(c => c.task_id)).size}</h3><p>Active Threads</p></div>
+                </div>
             </div>
 
             <div className="dashboard-main-grid">
@@ -633,7 +639,7 @@ export default function Dashboard() {
                                 <div className="task-body">
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <h4>{task.title}</h4>
-                                        <button className="icon-btn-xs" onClick={() => setShowComments(task.id)}><MessageCircle size={12} /> {comments.filter(c => c.task_id === task.id).length}</button>
+                                        <button className="icon-btn-xs" onClick={() => { setActiveTab('chat'); setSelectedChatTask(task.id); }}><MessagesSquare size={12} /> {comments.filter(c => c.task_id === task.id).length}</button>
                                     </div>
                                     <div className="task-meta">
                                         <span><Clock size={14} /> {task.deadline}</span>
@@ -668,6 +674,85 @@ export default function Dashboard() {
         </div>
     );
 
+    const renderTeamTalk = () => (
+        <div className="chat-view fade-in">
+            <header className="content-header">
+                <div><h1>Team Talk</h1><p className="subtitle">Centralized Project Discussions</p></div>
+            </header>
+            <div className="chat-layout glass-panel">
+                <div className="chat-sidebar">
+                    <div className="sidebar-search">
+                        <Search size={16} />
+                        <input type="text" placeholder="Jump to thread..." />
+                    </div>
+                    <div className="chat-threads-list">
+                        {tasks.map(task => (
+                            <div
+                                key={task.id}
+                                className={`thread-item ${selectedChatTask === task.id ? 'active' : ''}`}
+                                onClick={() => setSelectedChatTask(task.id)}
+                            >
+                                <div className={`status-dot-sm ${task.priority}`}></div>
+                                <div className="thread-info">
+                                    <h4>{task.title}</h4>
+                                    <p>{comments.filter(c => c.task_id === task.id).length} messages</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="chat-main">
+                    {selectedChatTask ? (
+                        <>
+                            <div className="chat-header-banner">
+                                <div className="banner-info">
+                                    <MessagesSquare size={18} />
+                                    <h3>{getTask(selectedChatTask)?.title}</h3>
+                                </div>
+                                <span className={`priority-tag ${getTask(selectedChatTask)?.priority}`}>
+                                    {getTask(selectedChatTask)?.priority} priority
+                                </span>
+                            </div>
+                            <div className="chat-messages-container">
+                                {comments.filter(c => c.task_id === selectedChatTask).map((comm) => (
+                                    <div key={comm.id} className={`chat-bubble-row ${comm.author_id === session?.user.id ? 'mine' : ''}`}>
+                                        <div className="chat-bubble-content">
+                                            <div className="bubble-meta">
+                                                <span className="author">{getAssignee(comm.author_id)?.name || 'Member'}</span>
+                                                {(comm.author_id === session?.user.id || isAdmin) && (
+                                                    <button className="bubble-delete" onClick={() => handleDeleteComment(comm.id)}>
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <p className="text">{comm.content}</p>
+                                            <span className="time">{new Date(comm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {comments.filter(c => c.task_id === selectedChatTask).length === 0 && (
+                                    <div className="chat-empty">
+                                        <div className="empty-icon"><MessageSquare size={32} /></div>
+                                        <p>No messages here yet. Clear the air!</p>
+                                    </div>
+                                )}
+                            </div>
+                            <form className="chat-input-row" onSubmit={(e) => handleAddComment(e, selectedChatTask)}>
+                                <input placeholder="Type your message..." required />
+                                <button type="submit" className="chat-send-btn"><Send size={18} /></button>
+                            </form>
+                        </>
+                    ) : (
+                        <div className="chat-selection-placeholder">
+                            <MessagesSquare size={48} />
+                            <h2>Pick a discussion thread</h2>
+                            <p>Select a task from the left to start collaborating with the team.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
     const renderMindspace = () => (
         <div className="mindspace-view fade-in">
             <header className="content-header">
@@ -742,14 +827,23 @@ export default function Dashboard() {
 
             <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
                 <div className="logo"><div className="logo-icon">TS</div><span>TeamSync</span></div>
-                <nav>
-                    <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => { setActiveTab("dashboard"); setIsSidebarOpen(false); }}><LayoutDashboard size={20} /> Dashboard</button>
-                    <button className={activeTab === "tasks" ? "active" : ""} onClick={() => { setActiveTab("tasks"); setIsSidebarOpen(false); }}><CheckSquare size={20} /> Tasks</button>
-                    <button className={activeTab === "mindspace" ? "active" : ""} onClick={() => { setActiveTab("mindspace"); setIsSidebarOpen(false); }}><Lightbulb size={20} /> Mindspace</button>
-                    <button className={activeTab === "vault" ? "active" : ""} onClick={() => { setActiveTab("vault"); setIsSidebarOpen(false); }}><Folder size={20} /> Vault</button>
-                    <button className={activeTab === "team" ? "active" : ""} onClick={() => { setActiveTab("team"); setIsSidebarOpen(false); }}><Users size={20} /> Team Hub</button>
-                    <button className="logout" onClick={handleLogout} style={{ marginTop: 'auto', color: 'var(--error)' }}><LogOut size={20} /> Logout</button>
-                </nav>
+                <aside>
+                    <ul>
+                        <li className={activeTab === "dashboard" ? "active" : ""} onClick={() => { setActiveTab("dashboard"); setIsSidebarOpen(false); }}><LayoutDashboard size={20} /> <span>Dashboard</span></li>
+                        <li className={activeTab === "tasks" ? "active" : ""} onClick={() => { setActiveTab("tasks"); setIsSidebarOpen(false); }}><CheckSquare size={20} /> <span>Tasks</span></li>
+                        <li className={activeTab === "mindspace" ? "active" : ""} onClick={() => { setActiveTab("mindspace"); setIsSidebarOpen(false); }}><Lightbulb size={20} /> <span>Mindspace</span></li>
+                        <li className={activeTab === 'vault' ? 'active' : ''} onClick={() => { setActiveTab('vault'); setIsSidebarOpen(false); }}>
+                            <Folder size={20} /> <span>Resource Vault</span>
+                        </li>
+                        <li className={activeTab === 'chat' ? 'active' : ''} onClick={() => { setActiveTab('chat'); setIsSidebarOpen(false); }}>
+                            <MessagesSquare size={20} /> <span>Team Talk</span>
+                        </li>
+                        <li className={activeTab === "team" ? "active" : ""} onClick={() => { setActiveTab("team"); setIsSidebarOpen(false); }}><Users size={20} /> <span>Team Hub</span></li>
+                        <li onClick={handleLogout} className="logout-item">
+                            <LogOut size={20} /> <span>Logout</span>
+                        </li>
+                    </ul>
+                </aside>
                 <div className="sidebar-footer">
                     <div className="current-user-info">
                         <img src={currentUser?.avatar} alt="" />
@@ -776,6 +870,7 @@ export default function Dashboard() {
                     {activeTab === "dashboard" && <motion.div key="dash" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderDashboard()}</motion.div>}
                     {activeTab === "mindspace" && <motion.div key="mind" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderMindspace()}</motion.div>}
                     {activeTab === "vault" && <motion.div key="vault" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderVault()}</motion.div>}
+                    {activeTab === "chat" && <motion.div key="chat" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderTeamTalk()}</motion.div>}
 
                     {activeTab === "tasks" && (
                         <motion.div key="tasks" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="tasks-view">
@@ -795,9 +890,9 @@ export default function Dashboard() {
                                                     <div className="task-card-header">
                                                         <span className={`badge ${task.priority}`}>{task.priority}</span>
                                                         <div className="card-actions">
-                                                            <button className="icon-btn-xs" onClick={() => setShowComments(task.id)}><MessageSquare size={12} /></button>
-                                                            <button className="icon-btn-xs" onClick={() => openEditTask(task)}><Settings size={12} /></button>
-                                                            <button className="icon-btn-xs" onClick={() => handleDeleteTask(task.id)} style={{ color: 'var(--error)' }}><Trash2 size={12} /></button>
+                                                            <button className="icon-btn-xs" onClick={() => { setActiveTab('chat'); setSelectedChatTask(task.id); }}><MessagesSquare size={14} /></button>
+                                                            <button className="icon-btn-xs" onClick={() => openEditTask(task)}><Plus size={14} /></button>
+                                                            <button className="icon-btn-xs" onClick={() => handleDeleteTask(task.id)}><Trash2 size={14} /></button>
                                                         </div>
                                                     </div>
                                                     <h4>{task.title}</h4>
@@ -951,40 +1046,6 @@ export default function Dashboard() {
                         </form>
                     </Modal>
                 )}
-
-                {showComments && (
-                    <Modal title="Activity Thread" onClose={() => setShowComments(null)}>
-                        <div className="comments-view">
-                            <div className="comments-list-full">
-                                {comments.filter(c => c.task_id === showComments).map((comm) => (
-                                    <div key={comm.id} className={`comment-item ${comm.author_id === session?.user.id ? 'own-comment' : ''}`}>
-                                        <div className="comment-bubble-wrapper">
-                                            <div className="comment-bubble">
-                                                <div className="comment-header-row">
-                                                    <p className="comment-author">{getAssignee(comm.author_id)?.name || 'Team Member'}</p>
-                                                    {(comm.author_id === session?.user.id || isAdmin) && (
-                                                        <button className="delete-comment-btn" onClick={() => handleDeleteComment(comm.id)}>
-                                                            <Trash2 size={12} />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                                <p className="comment-text">{comm.content}</p>
-                                                <div className="comment-footer">
-                                                    <p className="comment-time">{new Date(comm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                                {comments.filter(c => c.task_id === showComments).length === 0 && <p className="empty-text">No discussion yet. Start the thread!</p>}
-                            </div>
-                            <form onSubmit={(e) => handleAddComment(e, showComments)} className="comment-input-area">
-                                <input placeholder="Write a comment..." />
-                                <button type="submit" className="icon-btn"><Send size={18} /></button>
-                            </form>
-                        </div>
-                    </Modal>
-                )}
             </AnimatePresence>
 
             {/* Confirmation Modal */}
@@ -1084,73 +1145,76 @@ export default function Dashboard() {
             }
         }
 
-        /* Premium WhatsApp Overhaul */
-        .comments-view { display: flex; flex-direction: column; height: 550px; max-height: 80vh; background: #0b141a; border-radius: 0 0 16px 16px; position: relative; }
-        .comments-list-full { flex: 1; overflow-y: auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 8px; scroll-behavior: smooth; }
-        .comment-item { display: flex; width: 100%; }
-        .comment-item.own-comment { justify-content: flex-end; }
-        .comment-bubble-wrapper { max-width: 85%; display: flex; flex-direction: column; }
-        .comment-bubble { 
-            padding: 8px 12px; 
+        /* Team Talk Overhaul */
+        .chat-layout { display: flex; height: calc(100vh - 180px); overflow: hidden; margin-top: 24px; }
+        .chat-sidebar { width: 300px; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: rgba(0,0,0,0.2); }
+        .sidebar-search { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); }
+        .sidebar-search input { background: transparent; border: none; font-size: 13px; color: white; width: 100%; outline: none; }
+        .chat-threads-list { flex: 1; overflow-y: auto; }
+        .thread-item { padding: 16px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; align-items: center; gap: 12px; transition: 0.2s; }
+        .thread-item:hover { background: rgba(255,255,255,0.05); }
+        .thread-item.active { background: rgba(59, 130, 246, 0.1); border-left: 3px solid var(--primary); }
+        .status-dot-sm { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .status-dot-sm.high { background: #ef4444; }
+        .status-dot-sm.medium { background: #f59e0b; }
+        .status-dot-sm.low { background: #3b82f6; }
+        .thread-info h4 { font-size: 14px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+        .thread-info p { font-size: 11px; color: var(--text-muted); }
+
+        .chat-main { flex: 1; display: flex; flex-direction: column; background: #070a0e; position: relative; }
+        .chat-header-banner { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); }
+        .banner-info { display: flex; align-items: center; gap: 12px; }
+        .banner-info h3 { font-size: 16px; font-weight: 600; }
+        .priority-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.1); }
+        .priority-tag.high { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+
+        .chat-messages-container { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+        .chat-bubble-row { display: flex; width: 100%; }
+        .chat-bubble-row.mine { justify-content: flex-end; }
+        .chat-bubble-content { 
+            padding: 10px 14px; 
             border-radius: 12px; 
-            background: #202c33; 
-            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            background: #1e293b; 
+            max-width: 75%; 
             position: relative;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease-out;
         }
-        .comment-item.own-comment .comment-bubble { 
-            background: #005c4b; 
-            border-bottom-right-radius: 2px;
+        .chat-bubble-row.mine .chat-bubble-content { 
+            background: #0ea5e9; 
+            border-top-right-radius: 2px;
         }
-        .comment-item:not(.own-comment) .comment-bubble {
-            border-bottom-left-radius: 2px;
+        .chat-bubble-row:not(.mine) .chat-bubble-content {
+            border-top-left-radius: 2px;
         }
-        .comment-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
-        .comment-author { font-size: 11px; font-weight: 700; color: #53bdeb; margin-bottom: 2px; }
-        .comment-item.own-comment .comment-author { color: #8696a0; }
-        .delete-comment-btn { 
-            opacity: 0; 
-            color: rgba(255,255,255,0.4); 
-            padding: 2px; 
-            transition: 0.2s;
-            margin-top: -2px;
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .bubble-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 2px; }
+        .bubble-meta .author { font-size: 10px; font-weight: 700; color: #53bdeb; }
+        .chat-bubble-row.mine .author { color: #e2e8f0; }
+        .bubble-delete { opacity: 0; color: rgba(255,255,255,0.5); padding: 2px; transition: 0.2s; }
+        .chat-bubble-content:hover .bubble-delete { opacity: 1; }
+        .bubble-delete:hover { color: #ef4444; }
+
+        .chat-bubble-content .text { font-size: 14px; line-height: 1.5; color: #f8fafc; }
+        .chat-bubble-content .time { font-size: 9px; color: rgba(255,255,255,0.4); display: block; text-align: right; margin-top: 6px; }
+
+        .chat-input-row { padding: 16px 24px; background: rgba(255,255,255,0.03); border-top: 1px solid var(--border); display: flex; gap: 12px; align-items: center; }
+        .chat-input-row input { flex: 1; background: #1e293b; border: 1px solid var(--border); color: white; padding: 12px 20px; border-radius: 24px; outline: none; transition: 0.2s; }
+        .chat-input-row input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2); }
+        .chat-send-btn { width: 44px; height: 44px; border-radius: 50%; background: #0ea5e9; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(14, 165, 233, 0.3); transition: 0.2s; }
+        .chat-send-btn:hover { transform: scale(1.05); background: #0284c7; }
+
+        .chat-selection-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); text-align: center; padding: 40px; }
+        .chat-selection-placeholder h2 { color: white; margin: 16px 0 8px; }
+        .chat-empty { text-align: center; margin-top: 100px; color: var(--text-muted); }
+        .empty-icon { width: 64px; height: 64px; border-radius: 50%; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+
+        @media (max-width: 768px) {
+            .chat-layout { flex-direction: column; height: auto; }
+            .chat-sidebar { width: 100%; height: 200px; }
+            .chat-main { height: 500px; }
         }
-        .comment-bubble:hover .delete-comment-btn { opacity: 1; }
-        .delete-comment-btn:hover { color: #ef4444; }
-        .comment-text { font-size: 14.5px; line-height: 1.5; color: #e9edef; white-space: pre-wrap; word-break: break-word; }
-        .comment-footer { display: flex; justify-content: flex-end; margin-top: 2px; }
-        .comment-time { font-size: 10px; color: rgba(255,255,255,0.4); }
-        .comment-input-area { 
-            padding: 12px 16px; 
-            display: flex; 
-            gap: 12px; 
-            background: #202c33; 
-            align-items: center; 
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-        }
-        .comment-input-area input { 
-            flex: 1; 
-            background: #2a3942; 
-            border: none; 
-            color: #d1d7db; 
-            padding: 12px 18px; 
-            border-radius: 24px; 
-            outline: none; 
-            font-size: 14px;
-            box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
-        }
-        .comment-input-area .icon-btn { 
-            background: #00a884; 
-            color: white; 
-            width: 40px; 
-            height: 40px; 
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-        }
-        .comment-input-area .icon-btn:hover { background: #008f6f; transform: scale(1.05); }
-        .empty-text { text-align: center; color: #8696a0; margin-top: 40px; font-style: italic; font-size: 13px; font-weight: 500; }
       `}</style>
         </div>
     );
