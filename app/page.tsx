@@ -547,28 +547,30 @@ export default function Dashboard() {
         e.preventDefault();
         const input = e.currentTarget.querySelector('input') as HTMLInputElement;
         const content = input.value.trim();
-        if (!content) return;
+        if (!content || !taskId) return;
 
         // Clear input immediately for WhatsApp-like feel
         input.value = '';
 
-        const { data, error } = await supabase.from('task_comments').insert([{
-            task_id: taskId,
-            author_id: session?.user.id,
-            content: content
-        }]).select();
+        try {
+            const { data, error } = await supabase.from('task_comments').insert([{
+                task_id: taskId,
+                author_id: session?.user.id,
+                content: content
+            }]).select();
 
-        if (error) {
-            console.error("Comment Error:", error);
-            showNotification(`Error: ${error.message}`);
-            // Restore content if failed? Usually better to just notify.
-        } else {
-            if (data && data[0]) {
+            if (error) {
+                console.error("Comment Error:", error);
+                showNotification(`Error: ${error.message}`);
+            } else if (data && data[0]) {
                 setComments(prev => {
                     if (prev.find(c => c.id === data[0].id)) return prev;
                     return [...prev, data[0]];
                 });
             }
+        } catch (err: any) {
+            console.error("Chatting Failure:", err);
+            showNotification(`Network Error: ${err.message}`);
         }
     };
 
@@ -1105,10 +1107,23 @@ export default function Dashboard() {
         .assignee-option input:checked + .assignee-card-mini { background: rgba(59, 130, 246, 0.1); border-color: var(--primary); color: var(--primary); }
         .input-group { display: flex; flex-direction: column; }
         
-        .confirm-dialog { max-width: 400px; text-align: center; }
-        .confirm-dialog p { color: var(--text-muted); margin: 16px 0 24px; font-size: 14px; line-height: 1.6; }
-        .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .meeting-actions-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+        .sidebar aside ul { list-style: none; padding: 0; margin: 0; }
+        .sidebar aside li { 
+            padding: 12px 16px; 
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+            cursor: pointer; 
+            border-radius: 8px; 
+            transition: 0.2s;
+            margin-bottom: 4px;
+            color: var(--text-muted);
+        }
+        .sidebar aside li:hover { background: rgba(59, 130, 246, 0.05); color: white; }
+        .sidebar aside li.active { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+        .sidebar aside li span { font-weight: 500; font-size: 14px; }
+        .logout-item { margin-top: 20px !important; color: #ef4444 !important; opacity: 0.8; }
+        .logout-item:hover { background: rgba(239, 68, 68, 0.1) !important; opacity: 1; }
 
         /* Mindspace */
         .mind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 24px; }
