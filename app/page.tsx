@@ -168,17 +168,21 @@ export default function Dashboard() {
 
         fetchData();
 
-        // Real-time Subscriptions
+        // Real-time Subscriptions with Duplicate Prevention
         const tasksChannel = supabase.channel('tasks-sync')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') setTasks(prev => [{ ...payload.new, assigneeId: payload.new.assignee_id }, ...prev]);
-                else if (payload.eventType === 'UPDATE') setTasks(prev => prev.map(t => t.id === payload.new.id ? { ...payload.new, assigneeId: payload.new.assignee_id } : t));
-                else if (payload.eventType === 'DELETE') setTasks(prev => prev.filter(t => t.id !== payload.old.id));
+                if (payload.eventType === 'INSERT') {
+                    setTasks(prev => prev.find(t => t.id === payload.new.id) ? prev : [{ ...payload.new, assigneeId: payload.new.assignee_id }, ...prev]);
+                } else if (payload.eventType === 'UPDATE') {
+                    setTasks(prev => prev.map(t => t.id === payload.new.id ? { ...payload.new, assigneeId: payload.new.assignee_id } : t));
+                } else if (payload.eventType === 'DELETE') {
+                    setTasks(prev => prev.filter(t => t.id !== payload.old.id));
+                }
             }).subscribe();
 
         const commentsChannel = supabase.channel('comments-sync')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments' }, (payload) => {
-                setComments(prev => [...prev, payload.new]);
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments' }, (payload: any) => {
+                setComments(prev => prev.find(c => c.id === payload.new.id) ? prev : [...prev, payload.new]);
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'task_comments' }, (payload) => {
                 setComments(prev => prev.filter(c => c.id !== payload.old.id));
@@ -186,9 +190,13 @@ export default function Dashboard() {
 
         const mindChannel = supabase.channel('mind-sync')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'mindspace_items' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') setMindItems(prev => [payload.new, ...prev]);
-                else if (payload.eventType === 'UPDATE') setMindItems(prev => prev.map(i => i.id === payload.new.id ? payload.new : i));
-                else if (payload.eventType === 'DELETE') setMindItems(prev => prev.filter(i => i.id !== payload.old.id));
+                if (payload.eventType === 'INSERT') {
+                    setMindItems(prev => prev.find(i => i.id === payload.new.id) ? prev : [payload.new, ...prev]);
+                } else if (payload.eventType === 'UPDATE') {
+                    setMindItems(prev => prev.map(i => i.id === payload.new.id ? payload.new : i));
+                } else if (payload.eventType === 'DELETE') {
+                    setMindItems(prev => prev.filter(i => i.id !== payload.old.id));
+                }
             }).subscribe();
 
         const clockInterval = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -229,10 +237,11 @@ export default function Dashboard() {
             priority: formData.get('priority') as string,
             status: 'todo'
         };
-        const { error } = await supabase.from('tasks').insert([taskData]);
+        const { data, error } = await supabase.from('tasks').insert([taskData]).select().single();
         if (error) {
             showNotification(`Failed to create task: ${error.message}`, 'error');
-        } else {
+        } else if (data) {
+            setTasks(prev => [{ ...data, assigneeId: data.assignee_id }, ...prev]);
             showNotification("Goal locked in! Let's get to work.", 'success');
             setShowModal(null);
         }
@@ -248,18 +257,23 @@ export default function Dashboard() {
             author_id: session?.user.id,
             upvotes: 0
         };
-        const { error } = await supabase.from('mindspace_items').insert([item]);
+        const { data, error } = await supabase.from('mindspace_items').insert([item]).select().single();
         if (error) {
             showNotification(`Database Error: ${error.message}. Is the table 'mindspace_items' created?`, 'error');
-        } else {
+        } else if (data) {
+            setMindItems(prev => [data, ...prev]);
             showNotification("Your thought is now in the orbit!", 'success');
             setShowModal(null);
         }
     };
 
     const handleUpvote = async (id: string, current: number) => {
+        setMindItems(prev => prev.map(i => i.id === id ? { ...i, upvotes: current + 1 } : i));
         const { error } = await supabase.from('mindspace_items').update({ upvotes: current + 1 }).eq('id', id);
-        if (error) showNotification("Upvote failed", "error");
+        if (error) {
+            showNotification("Upvote failed", "error");
+            setMindItems(prev => prev.map(i => i.id === id ? { ...i, upvotes: current } : i)); // Rollback
+        }
     };
 
     const handleAddComment = async (e: React.FormEvent<HTMLFormElement>, taskId: string) => {
@@ -269,21 +283,24 @@ export default function Dashboard() {
         if (!content || !taskId) return;
 
         input.value = '';
-        const { error } = await supabase.from('task_comments').insert([{
+        const { data, error } = await supabase.from('task_comments').insert([{
             task_id: taskId,
             author_id: session?.user.id,
             content: content
-        }]);
+        }]).select().single();
 
         if (error) showNotification(`failed to send: ${error.message}`, 'error');
+        else if (data) setComments(prev => [...prev, data]);
     };
 
     const handleDeleteComment = async (id: string) => {
+        setComments(prev => prev.filter(c => c.id !== id));
         const { error } = await supabase.from('task_comments').delete().eq('id', id);
         if (error) showNotification("Delete failed", "error");
     };
 
     const handleDeleteMindItem = async (id: string) => {
+        setMindItems(prev => prev.filter(i => i.id !== id));
         const { error } = await supabase.from('mindspace_items').delete().eq('id', id);
         if (error) showNotification("Delete failed", "error");
         else showNotification("Thought cleared from orbit", "success");
@@ -298,10 +315,15 @@ export default function Dashboard() {
             status: 'todo'
         };
 
-        const { error: taskErr } = await supabase.from('tasks').insert([taskData]);
+        const { data: newTask, error: taskErr } = await supabase.from('tasks').insert([taskData]).select().single();
         if (taskErr) {
             showNotification(`Failed to convert: ${taskErr.message}`, 'error');
             return;
+        }
+
+        if (newTask) {
+            setTasks(prev => [{ ...newTask, assigneeId: newTask.assignee_id }, ...prev]);
+            setMindItems(prev => prev.filter(i => i.id !== item.id));
         }
 
         const { error: delErr } = await supabase.from('mindspace_items').delete().eq('id', item.id);
@@ -315,6 +337,7 @@ export default function Dashboard() {
     };
 
     const handleDeleteTask = async (id: string) => {
+        setTasks(prev => prev.filter(t => t.id !== id));
         const { error } = await supabase.from('tasks').delete().eq('id', id);
         if (error) showNotification("Delete failed", "error");
         else showNotification("Task removed", "success");
@@ -324,7 +347,14 @@ export default function Dashboard() {
         const task = tasks.find(t => t.id === id);
         if (!task) return;
         const nextStatus = task.status === 'todo' ? 'in-progress' : task.status === 'in-progress' ? 'completed' : 'todo';
-        await supabase.from('tasks').update({ status: nextStatus }).eq('id', id);
+
+        setTasks(prev => prev.map(t => t.id === id ? { ...t, status: nextStatus } : t));
+
+        const { error } = await supabase.from('tasks').update({ status: nextStatus }).eq('id', id);
+        if (error) {
+            showNotification("Update failed", "error");
+            setTasks(prev => prev.map(t => t.id === id ? { ...t, status: task.status } : t)); // Rollback
+        }
     };
 
     // --- Render Functions ---
