@@ -138,7 +138,12 @@ export default function Dashboard() {
 
                 // 2. Fetch all Members
                 const { data: membersData } = await supabase.from('members').select('*');
-                if (membersData) setMembers(membersData);
+                if (membersData && membersData.length > 0) {
+                    setMembers(membersData);
+                } else if (profile) {
+                    // If no members in DB yet, at least show the current user
+                    setMembers([profile]);
+                }
 
                 // 3. Fetch Tasks
                 const { data: tasksData } = await supabase.from('tasks').select('*');
