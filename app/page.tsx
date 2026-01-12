@@ -686,13 +686,18 @@ export default function Dashboard() {
         <div className={`app-shell ${mobileMenuOpen ? 'menu-open' : ''}`}>
             {/* Mobile Top Bar */}
             <div className="mobile-header mobile-only">
-                <div className="brand">
+                <div className="brand" style={{ margin: 0 }}>
                     <div className="brand-icon"><Sparkles size={16} /></div>
-                    <span>TeamSync</span>
+                    <span style={{ fontSize: '16px' }}>TeamSync</span>
                 </div>
-                <button className="menu-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-                    {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="menu-toggle refresh-btn" onClick={() => window.location.reload()} title="Refresh">
+                        <Zap size={20} />
+                    </button>
+                    <button className="menu-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+                        {mobileMenuOpen ? <X size={26} /> : <Menu size={26} />}
+                    </button>
+                </div>
             </div>
 
             <aside className={`main-sidebar ${mobileMenuOpen ? 'open' : ''}`}>
@@ -1242,45 +1247,68 @@ export default function Dashboard() {
                     .desktop-only { display: none; }
                     .mobile-only { display: flex; }
 
-                    .app-shell { flex-direction: column; height: 100vh; }
+                    .app-shell { flex-direction: column; height: 100vh; overflow: hidden; }
                     
                     .main-sidebar {
                         position: fixed;
-                        top: 60px;
+                        top: 0;
                         left: -100%;
-                        width: 100%;
-                        height: calc(100vh - 60px);
-                        z-index: 999;
-                        transition: left 0.3s ease;
+                        width: 85%;
+                        max-width: 320px;
+                        height: 100%;
+                        z-index: 2000;
+                        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
                         background: var(--bg-darker);
+                        box-shadow: 20px 0 50px rgba(0,0,0,0.5);
                     }
                     .main-sidebar.open { left: 0; }
                     
                     .mobile-header {
-                        height: 60px;
-                        background: var(--glass-heavy);
+                        height: auto;
+                        min-height: 64px;
+                        background: #020617; /* Solid dark background */
                         border-bottom: 1px solid var(--border);
                         display: flex;
                         justify-content: space-between;
                         align-items: center;
-                        padding: 0 20px;
-                        z-index: 1000;
+                        padding: env(safe-area-inset-top) 20px 10px;
+                        z-index: 1001;
+                        position: relative;
+                        flex-shrink: 0;
                     }
-                    .mobile-header .brand { margin: 0; font-size: 18px; }
-                    .menu-toggle { background: none; border: none; color: white; cursor: pointer; }
+                    .mobile-header .brand { margin: 0; font-size: 16px; }
+                    .mobile-header .brand-icon { width: 32px; height: 32px; }
+                    .menu-toggle { 
+                        background: rgba(255,255,255,0.05); 
+                        border: 1px solid var(--border); 
+                        color: white; 
+                        cursor: pointer; 
+                        padding: 8px; 
+                        border-radius: 12px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    .refresh-btn { color: var(--warning); border-color: rgba(245, 158, 11, 0.2); }
 
-                    .main-content-area { padding: 20px; padding-top: 20px; height: calc(100vh - 60px); }
+                    .main-content-area { 
+                        padding: 24px 20px; 
+                        flex: 1;
+                        height: auto;
+                        overflow-y: auto;
+                        -webkit-overflow-scrolling: touch;
+                    }
                     
-                    .view-header { flex-direction: column; gap: 16px; align-items: stretch; margin-bottom: 30px; }
-                    .view-header h1 { font-size: 24px; }
+                    .view-header { flex-direction: column; gap: 12px; align-items: stretch; margin-bottom: 24px; }
+                    .view-header h1 { font-size: 28px; }
 
                     .stats-grid { grid-template-columns: 1fr; gap: 16px; }
                     .dashboard-grid { grid-template-columns: 1fr; }
                     
-                    .tasks-board { grid-template-columns: 1fr; height: auto; display: flex; flex-direction: column; }
+                    .tasks-board { grid-template-columns: 1fr; height: auto; display: flex; flex-direction: column; gap: 24px; padding-bottom: 40px; }
                     .board-column { min-height: auto; }
 
-                    .chat-interface { height: calc(100vh - 180px); }
+                    .chat-interface { height: calc(100vh - 160px); }
                     .chat-sidebar { 
                         width: 100%; 
                         display: ${selectedChatTask ? 'none' : 'flex'}; 
@@ -1289,21 +1317,21 @@ export default function Dashboard() {
                         display: ${selectedChatTask ? 'flex' : 'none'};
                         width: 100%;
                     }
-                    .chat-header { display: flex; align-items: center; gap: 16px; }
+                    .chat-header { display: flex; align-items: center; gap: 16px; padding: 16px; }
                     .back-btn { padding: 8px; margin-right: -8px; }
 
                     .members-directory-grid { grid-template-columns: 1fr; gap: 20px; }
                     .mind-grid { grid-template-columns: 1fr; }
                     
-                    .modal-content { max-width: 95%; padding: 24px; }
+                    .modal-content { max-width: 95%; padding: 24px; margin: 20px; }
                 }
 
                 @media (max-width: 480px) {
-                    .main-content-area { padding: 16px; }
-                    .stat-card { padding: 16px; gap: 12px; }
-                    .stat-info h3 { font-size: 22px; }
-                    .message-row { max-width: 90%; }
-                    .msg-input-bar { padding: 16px; }
+                    .main-content-area { padding: 20px 16px; }
+                    .stat-card { padding: 20px; gap: 16px; }
+                    .stat-info h3 { font-size: 24px; }
+                    .message-row { max-width: 95%; }
+                    .msg-input-bar { padding: 12px; }
                 }
             `}</style>
         </div>
