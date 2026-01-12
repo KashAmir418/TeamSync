@@ -322,8 +322,8 @@ export default function Dashboard() {
                 });
                 showNotification("Task created successfully");
             } else {
-                console.error("Error creating task:", error);
-                showNotification("Error: Could not create task. Ensure your profile is active.");
+                console.error("Supabase Error:", error);
+                showNotification(`Error: ${error?.message || "Could not create task"}`);
             }
         }
 
@@ -448,8 +448,11 @@ export default function Dashboard() {
             author_id: session?.user.id,
             upvotes: 0
         };
-        const { data, error } = await supabase.from('mindspace_items').insert([item]).select();
-        if (data && !error) {
+        const { error } = await supabase.from('mindspace_items').insert([item]);
+        if (error) {
+            console.error("Mindspace Error:", error);
+            showNotification(`Error: ${error.message}`);
+        } else {
             showNotification(`${item.type === 'idea' ? 'Idea' : 'Issue'} shared!`);
             setShowModal(null);
         }
