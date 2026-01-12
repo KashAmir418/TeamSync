@@ -770,7 +770,60 @@ nav button.active {
     margin: 0;
 }
 
-@media (max-width: 1200px) {
+/* Mobile Header & Bottom Nav */
+.mobile-header {
+    display: none;
+    padding: 16px 20px;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    border-bottom: 1px solid var(--border);
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 70px;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    border-top: 1px solid var(--border);
+    z-index: 100;
+    padding: 0 10px;
+}
+
+.bottom-nav button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.bottom-nav button.active {
+    color: var(--primary);
+}
+
+.add-btn-mobile {
+    background: var(--primary);
+    color: white;
+    padding: 10px;
+    border-radius: 50%;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+/* Responsive Overrides */
+@media (max-width: 1024px) {
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -778,43 +831,108 @@ nav button.active {
     .dashboard-main-grid {
         grid-template-columns: 1fr;
     }
-}
 
-@media (max-width: 1024px) {
-    .resources-grid {
-        grid-template-columns: repeat(2, 1fr);
+    .search-bar {
+        width: 200px;
     }
 }
 
 @media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+    }
+
     .sidebar {
-        width: 80px;
-        padding: 16px 8px;
+        position: fixed;
+        left: -100%;
+        top: 0;
+        bottom: 0;
+        z-index: 1000;
+        width: 280px;
+        transition: 0.3s ease;
+        background: var(--background);
     }
 
-    .sidebar .logo span,
-    .sidebar nav button span,
-    .sidebar .logo-icon+span,
-    .sidebar nav button {
-        display: none;
+    .sidebar.open {
+        left: 0;
     }
 
-    .sidebar nav button {
-        justify-content: center;
-        padding: 12px;
+    .main-content {
+        padding: 24px 20px 100px;
+        width: 100%;
     }
 
-    .sidebar-footer {
-        align-items: center;
+    .mobile-header {
+        display: flex;
+    }
+
+    .bottom-nav {
+        display: flex;
+    }
+
+    .content-header {
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .header-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .search-bar {
+        width: 100%;
+        max-width: none;
     }
 
     .kanban-board {
         grid-template-columns: 1fr;
+        gap: 32px;
+    }
+
+    .modal-content {
+        margin: 20px;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .stats-grid {
+        gap: 12px;
+    }
+
+    .stat-card {
+        padding: 16px;
+    }
+
+    .stat-info h3 {
+        font-size: 18px;
+    }
+
+    .meetings-preview {
+        margin-top: 24px;
     }
 }
 
-@media (max-width: 640px) {
-    .resources-grid {
+@media (max-width: 480px) {
+    .stats-grid {
         grid-template-columns: 1fr;
+    }
+
+    .header-actions .icon-btn {
+        display: none;
+    }
+
+    .logo span {
+        font-size: 18px;
+    }
+
+    .content-header h1 {
+        font-size: 24px;
     }
 }

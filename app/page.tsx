@@ -29,7 +29,8 @@ import {
     Folder,
     ExternalLink,
     Copy,
-    MessageCircle
+    MessageCircle,
+    Menu
 } from "lucide-react";
 import { TEAM_MEMBERS as INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_MEETINGS, Task, Member, Meeting } from "@/lib/data";
 import { supabase } from "@/lib/supabase";
@@ -94,6 +95,7 @@ export default function Dashboard() {
     const [toast, setToast] = useState<string | null>(null);
     const [confirmAction, setConfirmAction] = useState<{ title: string, message: string, onConfirm: () => void } | null>(null);
     const [session, setSession] = useState<Session | null>(null);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [mindItems, setMindItems] = useState<any[]>([]);
     const [comments, setComments] = useState<any[]>([]);
     const [resources, setResources] = useState<any[]>([]);
@@ -620,14 +622,21 @@ export default function Dashboard() {
 
     return (
         <div className="app-container">
-            <div className="sidebar">
+            <header className="mobile-header">
+                <div className="logo"><div className="logo-icon">TS</div><span>TeamSync</span></div>
+                <button className="icon-btn" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+                    {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+                </button>
+            </header>
+
+            <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
                 <div className="logo"><div className="logo-icon">TS</div><span>TeamSync</span></div>
                 <nav>
-                    <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => setActiveTab("dashboard")}><LayoutDashboard size={20} /> Dashboard</button>
-                    <button className={activeTab === "tasks" ? "active" : ""} onClick={() => setActiveTab("tasks")}><CheckSquare size={20} /> Tasks</button>
-                    <button className={activeTab === "mindspace" ? "active" : ""} onClick={() => setActiveTab("mindspace")}><Lightbulb size={20} /> Mindspace</button>
-                    <button className={activeTab === "vault" ? "active" : ""} onClick={() => setActiveTab("vault")}><Folder size={20} /> Vault</button>
-                    <button className={activeTab === "team" ? "active" : ""} onClick={() => setActiveTab("team")}><Users size={20} /> Team Hub</button>
+                    <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => { setActiveTab("dashboard"); setIsSidebarOpen(false); }}><LayoutDashboard size={20} /> Dashboard</button>
+                    <button className={activeTab === "tasks" ? "active" : ""} onClick={() => { setActiveTab("tasks"); setIsSidebarOpen(false); }}><CheckSquare size={20} /> Tasks</button>
+                    <button className={activeTab === "mindspace" ? "active" : ""} onClick={() => { setActiveTab("mindspace"); setIsSidebarOpen(false); }}><Lightbulb size={20} /> Mindspace</button>
+                    <button className={activeTab === "vault" ? "active" : ""} onClick={() => { setActiveTab("vault"); setIsSidebarOpen(false); }}><Folder size={20} /> Vault</button>
+                    <button className={activeTab === "team" ? "active" : ""} onClick={() => { setActiveTab("team"); setIsSidebarOpen(false); }}><Users size={20} /> Team Hub</button>
                     <button className="logout" onClick={handleLogout} style={{ marginTop: 'auto', color: 'var(--error)' }}><LogOut size={20} /> Logout</button>
                 </nav>
                 <div className="sidebar-footer">
@@ -639,6 +648,16 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
+
+            <div className="bottom-nav">
+                <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => setActiveTab("dashboard")}><LayoutDashboard size={20} /><span>Home</span></button>
+                <button className={activeTab === "tasks" ? "active" : ""} onClick={() => setActiveTab("tasks")}><CheckSquare size={20} /><span>Tasks</span></button>
+                <button className={activeTab === "mindspace" ? "active" : ""} onClick={() => setActiveTab("mindspace")}><Plus size={24} className="add-btn-mobile" /></button>
+                <button className={activeTab === "vault" ? "active" : ""} onClick={() => setActiveTab("vault")}><Folder size={20} /><span>Vault</span></button>
+                <button className={activeTab === "team" ? "active" : ""} onClick={() => setActiveTab("team")}><Users size={20} /><span>Team</span></button>
             </div>
 
             <div className="main-content">
@@ -924,6 +943,19 @@ export default function Dashboard() {
         .res-info h4 { font-size: 15px; margin-bottom: 2px; }
         .res-info p { font-size: 12px; color: var(--text-muted); }
         .res-actions { display: flex; gap: 8px; }
+
+        @media (max-width: 768px) {
+            .mind-grid, .resources-list {
+                grid-template-columns: 1fr;
+            }
+            .sidebar-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.5);
+                backdrop-filter: blur(4px);
+                z-index: 999;
+            }
+        }
 
         /* Comments */
         .comments-view { display: flex; flex-direction: column; height: 500px; max-height: 70vh; }
