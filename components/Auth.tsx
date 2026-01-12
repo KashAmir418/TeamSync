@@ -164,6 +164,9 @@ export default function Auth({ onAuthSuccess }: { onAuthSuccess: () => void }) {
                 .auth-footer { margin-top: 24px; font-size: 14px; color: var(--text-muted); }
                 .text-link { color: var(--primary); font-weight: 600; background: none; border: none; padding: 0; cursor: pointer; }
                 .logo-icon { width: 48px; height: 48px; border-radius: 14px; background: var(--primary-gradient); color: white; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; margin: 0 auto; box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3); }
+                @media (max-width: 480px) {
+                    .auth-card { padding: 32px 24px; }
+                }
             `}</style>
         </div>
     );

@@ -105,6 +105,7 @@ export default function Dashboard() {
     const [comments, setComments] = useState<any[]>([]);
     const [selectedChatTask, setSelectedChatTask] = useState<string | null>(null);
     const [dbStatus, setDbStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -567,6 +568,9 @@ export default function Dashboard() {
                     {selectedChatTask ? (
                         <>
                             <div className="chat-header">
+                                <button className="icon-btn-sm mobile-only back-btn" onClick={() => setSelectedChatTask(null)}>
+                                    <X size={20} />
+                                </button>
                                 <div className="header-info">
                                     <h3>{tasks.find(t => t.id === selectedChatTask)?.title}</h3>
                                     <div className="header-meta">
@@ -679,28 +683,39 @@ export default function Dashboard() {
     if (!session) return <Auth onAuthSuccess={() => window.location.reload()} />;
 
     return (
-        <div className="app-shell">
-            <aside className="main-sidebar">
+        <div className={`app-shell ${mobileMenuOpen ? 'menu-open' : ''}`}>
+            {/* Mobile Top Bar */}
+            <div className="mobile-header mobile-only">
                 <div className="brand">
+                    <div className="brand-icon"><Sparkles size={16} /></div>
+                    <span>TeamSync</span>
+                </div>
+                <button className="menu-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+                    {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+                </button>
+            </div>
+
+            <aside className={`main-sidebar ${mobileMenuOpen ? 'open' : ''}`}>
+                <div className="brand desktop-only">
                     <div className="brand-icon"><Sparkles size={20} /></div>
                     <span>TeamSync</span>
                 </div>
 
                 <nav className="side-nav">
                     <ul>
-                        <li className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
+                        <li className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}>
                             <LayoutDashboard size={20} /> <span>Dashboard</span>
                         </li>
-                        <li className={activeTab === 'tasks' ? 'active' : ''} onClick={() => setActiveTab('tasks')}>
+                        <li className={activeTab === 'tasks' ? 'active' : ''} onClick={() => { setActiveTab('tasks'); setMobileMenuOpen(false); }}>
                             <CheckSquare size={20} /> <span>Tasks</span>
                         </li>
-                        <li className={activeTab === 'members' ? 'active' : ''} onClick={() => setActiveTab('members')}>
+                        <li className={activeTab === 'members' ? 'active' : ''} onClick={() => { setActiveTab('members'); setMobileMenuOpen(false); }}>
                             <Users size={20} /> <span>Team</span>
                         </li>
-                        <li className={activeTab === 'chat' ? 'active' : ''} onClick={() => setActiveTab('chat')}>
+                        <li className={activeTab === 'chat' ? 'active' : ''} onClick={() => { setActiveTab('chat'); setMobileMenuOpen(false); }}>
                             <MessagesSquare size={20} /> <span>Team Talk</span>
                         </li>
-                        <li className={activeTab === 'mindspace' ? 'active' : ''} onClick={() => setActiveTab('mindspace')}>
+                        <li className={activeTab === 'mindspace' ? 'active' : ''} onClick={() => { setActiveTab('mindspace'); setMobileMenuOpen(false); }}>
                             <Lightbulb size={20} /> <span>Mindspace</span>
                         </li>
                     </ul>
@@ -1213,6 +1228,83 @@ export default function Dashboard() {
                 ::-webkit-scrollbar-track { background: transparent; }
                 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
                 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+                /* Mobile Optimizations */
+                .mobile-only { display: none; }
+                
+                @media (max-width: 1024px) {
+                    .main-sidebar { width: 240px; }
+                    .main-content-area { padding: 24px; }
+                    .tasks-board { gap: 16px; }
+                }
+
+                @media (max-width: 768px) {
+                    .desktop-only { display: none; }
+                    .mobile-only { display: flex; }
+
+                    .app-shell { flex-direction: column; height: 100vh; }
+                    
+                    .main-sidebar {
+                        position: fixed;
+                        top: 60px;
+                        left: -100%;
+                        width: 100%;
+                        height: calc(100vh - 60px);
+                        z-index: 999;
+                        transition: left 0.3s ease;
+                        background: var(--bg-darker);
+                    }
+                    .main-sidebar.open { left: 0; }
+                    
+                    .mobile-header {
+                        height: 60px;
+                        background: var(--glass-heavy);
+                        border-bottom: 1px solid var(--border);
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 0 20px;
+                        z-index: 1000;
+                    }
+                    .mobile-header .brand { margin: 0; font-size: 18px; }
+                    .menu-toggle { background: none; border: none; color: white; cursor: pointer; }
+
+                    .main-content-area { padding: 20px; padding-top: 20px; height: calc(100vh - 60px); }
+                    
+                    .view-header { flex-direction: column; gap: 16px; align-items: stretch; margin-bottom: 30px; }
+                    .view-header h1 { font-size: 24px; }
+
+                    .stats-grid { grid-template-columns: 1fr; gap: 16px; }
+                    .dashboard-grid { grid-template-columns: 1fr; }
+                    
+                    .tasks-board { grid-template-columns: 1fr; height: auto; display: flex; flex-direction: column; }
+                    .board-column { min-height: auto; }
+
+                    .chat-interface { height: calc(100vh - 180px); }
+                    .chat-sidebar { 
+                        width: 100%; 
+                        display: ${selectedChatTask ? 'none' : 'flex'}; 
+                    }
+                    .chat-main { 
+                        display: ${selectedChatTask ? 'flex' : 'none'};
+                        width: 100%;
+                    }
+                    .chat-header { display: flex; align-items: center; gap: 16px; }
+                    .back-btn { padding: 8px; margin-right: -8px; }
+
+                    .members-directory-grid { grid-template-columns: 1fr; gap: 20px; }
+                    .mind-grid { grid-template-columns: 1fr; }
+                    
+                    .modal-content { max-width: 95%; padding: 24px; }
+                }
+
+                @media (max-width: 480px) {
+                    .main-content-area { padding: 16px; }
+                    .stat-card { padding: 16px; gap: 12px; }
+                    .stat-info h3 { font-size: 22px; }
+                    .message-row { max-width: 90%; }
+                    .msg-input-bar { padding: 16px; }
+                }
             `}</style>
         </div>
     );
