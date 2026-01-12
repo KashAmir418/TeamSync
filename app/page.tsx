@@ -1247,7 +1247,7 @@ export default function Dashboard() {
                     .desktop-only { display: none; }
                     .mobile-only { display: flex; }
 
-                    .app-shell { flex-direction: column; height: 100vh; overflow: hidden; }
+                    .app-shell { flex-direction: column; height: 100vh; overflow: hidden; background: #020617; }
                     
                     .main-sidebar {
                         position: fixed;
@@ -1258,20 +1258,20 @@ export default function Dashboard() {
                         height: 100%;
                         z-index: 2000;
                         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-                        background: var(--bg-darker);
+                        background: #020617;
                         box-shadow: 20px 0 50px rgba(0,0,0,0.5);
                     }
                     .main-sidebar.open { left: 0; }
                     
                     .mobile-header {
                         height: auto;
-                        min-height: 64px;
-                        background: #020617; /* Solid dark background */
+                        min-height: 80px;
+                        background: #020617; 
                         border-bottom: 1px solid var(--border);
                         display: flex;
                         justify-content: space-between;
                         align-items: center;
-                        padding: env(safe-area-inset-top) 20px 10px;
+                        padding: calc(env(safe-area-inset-top) + 24px) 20px 16px;
                         z-index: 1001;
                         position: relative;
                         flex-shrink: 0;
@@ -1283,8 +1283,8 @@ export default function Dashboard() {
                         border: 1px solid var(--border); 
                         color: white; 
                         cursor: pointer; 
-                        padding: 8px; 
-                        border-radius: 12px;
+                        padding: 10px; 
+                        border-radius: 14px;
                         display: flex;
                         align-items: center;
                         justify-content: center;
