@@ -247,15 +247,14 @@ export default function Dashboard() {
             .subscribe();
 
         const commentsChannel = supabase.channel('comments-realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'task_comments' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') {
-                    setComments(prev => {
-                        if (prev.find(c => c.id === payload.new.id)) return prev;
-                        return [...prev, payload.new];
-                    });
-                } else if (payload.eventType === 'DELETE') {
-                    setComments(prev => prev.filter(c => c.id !== payload.old.id));
-                }
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments' }, (payload: any) => {
+                setComments(prev => {
+                    if (prev.find(c => c.id === payload.new.id)) return prev;
+                    return [...prev, payload.new];
+                });
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'task_comments' }, (payload: any) => {
+                setComments(prev => prev.filter(c => c.id !== payload.old.id));
             })
             .subscribe();
 
@@ -288,7 +287,7 @@ export default function Dashboard() {
     if (!isInitialized) return <div className="loading-screen" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading Workspace...</div>;
 
     if (!session) {
-        return <Auth onAuthSuccess={() => { }} />;
+        return <Auth onAuthSuccess={() => window.location.reload()} />;
     }
 
     const getAssignee = (id: string) => members.find(m => m.id === id);
@@ -932,17 +931,21 @@ export default function Dashboard() {
                             <div className="comments-list-full">
                                 {comments.filter(c => c.task_id === showComments).map((comm) => (
                                     <div key={comm.id} className={`comment-item ${comm.author_id === session?.user.id ? 'own-comment' : ''}`}>
-                                        <div className="comment-bubble">
-                                            <div className="comment-header-row">
-                                                <p className="comment-author">{getAssignee(comm.author_id)?.name || 'Team Member'}</p>
-                                                {(comm.author_id === session?.user.id || isAdmin) && (
-                                                    <button className="delete-comment-btn" onClick={() => handleDeleteComment(comm.id)}>
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                )}
+                                        <div className="comment-bubble-wrapper">
+                                            <div className="comment-bubble">
+                                                <div className="comment-header-row">
+                                                    <p className="comment-author">{getAssignee(comm.author_id)?.name || 'Team Member'}</p>
+                                                    {(comm.author_id === session?.user.id || isAdmin) && (
+                                                        <button className="delete-comment-btn" onClick={() => handleDeleteComment(comm.id)}>
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <p className="comment-text">{comm.content}</p>
+                                                <div className="comment-footer">
+                                                    <p className="comment-time">{new Date(comm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                                </div>
                                             </div>
-                                            <p className="comment-text">{comm.content}</p>
-                                            <p className="comment-time">{new Date(comm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -1048,42 +1051,73 @@ export default function Dashboard() {
             }
         }
 
-        /* Comments */
-        .comments-view { display: flex; flex-direction: column; height: 500px; max-height: 70vh; background: #0b141a; } /* WhatsApp dark background */
-        .comments-list-full { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 4px; }
-        .comment-item { display: flex; width: 100%; margin-bottom: 2px; }
+        /* Premium WhatsApp Overhaul */
+        .comments-view { display: flex; flex-direction: column; height: 550px; max-height: 80vh; background: #0b141a; border-radius: 0 0 16px 16px; position: relative; }
+        .comments-list-full { flex: 1; overflow-y: auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 8px; scroll-behavior: smooth; }
+        .comment-item { display: flex; width: 100%; }
         .comment-item.own-comment { justify-content: flex-end; }
+        .comment-bubble-wrapper { max-width: 85%; display: flex; flex-direction: column; }
         .comment-bubble { 
             padding: 8px 12px; 
-            border-radius: 8px; 
-            position: relative; 
-            max-width: 85%;
-            background: #202c33; /* WhatsApp recipient bubble */
-            border: none;
-            box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+            border-radius: 12px; 
+            background: #202c33; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            position: relative;
         }
         .comment-item.own-comment .comment-bubble { 
-            background: #005c4b; /* WhatsApp sender bubble */
+            background: #005c4b; 
+            border-bottom-right-radius: 2px;
         }
-        .comment-header-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 2px; }
-        .comment-author { font-size: 11px; font-weight: 700; color: #8696a0; }
-        .comment-item.own-comment .comment-author { color: #53bdeb; }
-        .delete-comment-btn { color: rgba(255,255,255,0.3); padding: 4px; border-radius: 4px; transition: 0.2s; }
-        .delete-comment-btn:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
-        .comment-text { font-size: 14px; line-height: 1.4; color: #e9edef; white-space: pre-wrap; word-break: break-word; }
-        .comment-time { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 4px; text-align: right; }
-        .comment-input-area { padding: 10px 16px; display: flex; gap: 8px; background: #202c33; align-items: center; }
+        .comment-item:not(.own-comment) .comment-bubble {
+            border-bottom-left-radius: 2px;
+        }
+        .comment-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
+        .comment-author { font-size: 11px; font-weight: 700; color: #53bdeb; margin-bottom: 2px; }
+        .comment-item.own-comment .comment-author { color: #8696a0; }
+        .delete-comment-btn { 
+            opacity: 0; 
+            color: rgba(255,255,255,0.4); 
+            padding: 2px; 
+            transition: 0.2s;
+            margin-top: -2px;
+        }
+        .comment-bubble:hover .delete-comment-btn { opacity: 1; }
+        .delete-comment-btn:hover { color: #ef4444; }
+        .comment-text { font-size: 14.5px; line-height: 1.5; color: #e9edef; white-space: pre-wrap; word-break: break-word; }
+        .comment-footer { display: flex; justify-content: flex-end; margin-top: 2px; }
+        .comment-time { font-size: 10px; color: rgba(255,255,255,0.4); }
+        .comment-input-area { 
+            padding: 12px 16px; 
+            display: flex; 
+            gap: 12px; 
+            background: #202c33; 
+            align-items: center; 
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
         .comment-input-area input { 
             flex: 1; 
             background: #2a3942; 
             border: none; 
             color: #d1d7db; 
-            padding: 10px 16px; 
-            border-radius: 8px; 
+            padding: 12px 18px; 
+            border-radius: 24px; 
             outline: none; 
             font-size: 14px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
         }
-        .empty-text { text-align: center; color: var(--text-muted); margin-top: 40px; font-style: italic; font-size: 13px; }
+        .comment-input-area .icon-btn { 
+            background: #00a884; 
+            color: white; 
+            width: 40px; 
+            height: 40px; 
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        .comment-input-area .icon-btn:hover { background: #008f6f; transform: scale(1.05); }
+        .empty-text { text-align: center; color: #8696a0; margin-top: 40px; font-style: italic; font-size: 13px; font-weight: 500; }
       `}</style>
         </div>
     );
