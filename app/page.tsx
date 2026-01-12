@@ -233,16 +233,29 @@ export default function Dashboard() {
 
         const mindChannel = supabase.channel('mind-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'mindspace_items' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') setMindItems(prev => [payload.new, ...prev]);
-                else if (payload.eventType === 'UPDATE') setMindItems(prev => prev.map(i => i.id === payload.new.id ? payload.new : i));
-                else if (payload.eventType === 'DELETE') setMindItems(prev => prev.filter(i => i.id !== payload.old.id));
+                if (payload.eventType === 'INSERT') {
+                    setMindItems(prev => {
+                        if (prev.find(i => i.id === payload.new.id)) return prev;
+                        return [payload.new, ...prev];
+                    });
+                } else if (payload.eventType === 'UPDATE') {
+                    setMindItems(prev => prev.map(i => i.id === payload.new.id ? payload.new : i));
+                } else if (payload.eventType === 'DELETE') {
+                    setMindItems(prev => prev.filter(i => i.id !== payload.old.id));
+                }
             })
             .subscribe();
 
         const commentsChannel = supabase.channel('comments-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'task_comments' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') setComments(prev => [...prev, payload.new]);
-                else if (payload.eventType === 'DELETE') setComments(prev => prev.filter(c => c.id !== payload.old.id));
+                if (payload.eventType === 'INSERT') {
+                    setComments(prev => {
+                        if (prev.find(c => c.id === payload.new.id)) return prev;
+                        return [...prev, payload.new];
+                    });
+                } else if (payload.eventType === 'DELETE') {
+                    setComments(prev => prev.filter(c => c.id !== payload.old.id));
+                }
             })
             .subscribe();
 
@@ -466,7 +479,13 @@ export default function Dashboard() {
             showNotification(`Error: ${error.message}`);
         } else {
             showNotification(`${type === 'idea' ? 'Idea' : 'Issue'} shared!`);
-            if (data) setMindItems(prev => [data[0], ...prev]);
+            // Realtime will handle the state update if enabled, but let's be safe
+            if (data && data[0]) {
+                setMindItems(prev => {
+                    if (prev.find(i => i.id === data[0].id)) return prev;
+                    return [data[0], ...prev];
+                });
+            }
             setShowModal(null);
             e.currentTarget.reset();
         }
@@ -508,7 +527,12 @@ export default function Dashboard() {
             showNotification(`Error: ${error.message}`);
         } else {
             input.value = '';
-            if (data) setComments(prev => [...prev, data[0]]);
+            if (data && data[0]) {
+                setComments(prev => {
+                    if (prev.find(c => c.id === data[0].id)) return prev;
+                    return [...prev, data[0]];
+                });
+            }
         }
     };
 
@@ -894,13 +918,15 @@ export default function Dashboard() {
                     <Modal title="Activity Thread" onClose={() => setShowComments(null)}>
                         <div className="comments-view">
                             <div className="comments-list-full">
-                                {comments.filter(c => c.task_id === showComments).map(comm => (
-                                    <div key={comm.id} className="comment-item">
-                                        <img src={getAssignee(comm.author_id)?.avatar} alt="" />
+                                {comments.filter(c => c.task_id === showComments).map((comm, idx) => (
+                                    <div key={comm.id} className={`comment-item ${comm.author_id === session?.user.id ? 'own-comment' : ''}`}
+                                        ref={idx === comments.filter(c => c.task_id === showComments).length - 1 ? (el) => el?.scrollIntoView({ behavior: 'smooth' }) : null}
+                                    >
+                                        <img src={getAssignee(comm.author_id)?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comm.author_id}`} alt="" />
                                         <div className="comment-bubble">
-                                            <p className="comment-author">{getAssignee(comm.author_id)?.name}</p>
+                                            <p className="comment-author">{getAssignee(comm.author_id)?.name || 'Team Member'}</p>
                                             <p className="comment-text">{comm.content}</p>
-                                            <p className="comment-time">{new Date(comm.created_at).toLocaleTimeString()}</p>
+                                            <p className="comment-time">{new Date(comm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -1009,15 +1035,18 @@ export default function Dashboard() {
         /* Comments */
         .comments-view { display: flex; flex-direction: column; height: 500px; max-height: 70vh; }
         .comments-list-full { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
-        .comment-item { display: flex; gap: 12px; }
-        .comment-item img { width: 32px; height: 32px; border-radius: 8px; }
-        .comment-bubble { background: var(--surface); padding: 12px; border-radius: 12px; flex: 1; border: 1px solid var(--border); }
-        .comment-author { font-size: 12px; font-weight: 700; color: var(--primary); margin-bottom: 4px; }
-        .comment-text { font-size: 14px; line-height: 1.5; }
-        .comment-time { font-size: 10px; color: var(--text-muted); margin-top: 8px; text-align: right; }
-        .comment-input-area { padding: 20px; border-top: 1px solid var(--border); display: flex; gap: 12px; }
-        .comment-input-area input { flex: 1; background: var(--background); border: 1px solid var(--border); color: white; padding: 12px; border-radius: 12px; }
-        .empty-text { text-align: center; color: var(--text-muted); margin-top: 40px; font-style: italic; }
+        .comment-item { display: flex; gap: 12px; margin-bottom: 8px; }
+        .comment-item.own-comment { flex-direction: row-reverse; }
+        .comment-item.own-comment .comment-bubble { background: rgba(59, 130, 246, 0.1); border-color: var(--primary); }
+        .comment-item img { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
+        .comment-bubble { background: var(--surface); padding: 12px; border-radius: 12px; flex: 1; border: 1px solid var(--border); max-width: 80%; }
+        .comment-author { font-size: 11px; font-weight: 700; color: var(--primary); margin-bottom: 4px; }
+        .comment-text { font-size: 13px; line-height: 1.5; color: white; }
+        .comment-time { font-size: 9px; color: var(--text-muted); margin-top: 6px; text-align: right; }
+        .comment-input-area { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 12px; background: var(--background); }
+        .comment-input-area input { flex: 1; background: var(--surface); border: 1px solid var(--border); color: white; padding: 10px 16px; border-radius: 20px; outline: none; transition: 0.2s; }
+        .comment-input-area input:focus { border-color: var(--primary); background: var(--surface-hover); }
+        .empty-text { text-align: center; color: var(--text-muted); margin-top: 40px; font-style: italic; font-size: 13px; }
       `}</style>
         </div>
     );
