@@ -40,6 +40,44 @@ CREATE POLICY "Allow public read/write" ON members FOR ALL USING (true) WITH CHE
 CREATE POLICY "Allow public read/write" ON tasks FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read/write" ON meetings FOR ALL USING (true) WITH CHECK (true);
 
--- Initial Data (Optional)
--- INSERT INTO members (id, name, email, role, avatar) VALUES 
--- ('00000000-0000-0000-0000-000000000001', 'Alex Rivera', 'alex@teamsync.com', 'Team Admin / Product Manager', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex');
+-- 4. Mindspace Table
+CREATE TABLE mindspace_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  type TEXT CHECK (type IN ('idea', 'issue')) NOT NULL,
+  author_id UUID REFERENCES members(id) ON DELETE CASCADE,
+  upvotes INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 5. Task Comments Table (The Chat)
+CREATE TABLE task_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+  author_id UUID REFERENCES members(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 6. Resources Vault Table
+CREATE TABLE resources (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  category TEXT NOT NULL,
+  created_by UUID REFERENCES members(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable RLS for new tables
+ALTER TABLE mindspace_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE task_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public access" ON mindspace_items FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public access" ON task_comments FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public access" ON resources FOR ALL USING (true) WITH CHECK (true);
+
+-- Fix Deletion Realtime
+ALTER TABLE task_comments REPLICA IDENTITY FULL;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     LayoutDashboard,
@@ -31,516 +31,235 @@ import {
     Copy,
     MessageCircle,
     Menu,
-    MessagesSquare
+    MessagesSquare,
+    Zap,
+    TrendingUp,
+    Shield,
+    Sparkles
 } from "lucide-react";
-import { TEAM_MEMBERS as INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_MEETINGS, Task, Member, Meeting } from "@/lib/data";
+import { TEAM_MEMBERS as INITIAL_MEMBERS, Task, Member, Meeting } from "@/lib/data";
 import { supabase } from "@/lib/supabase";
 import Auth from "@/components/Auth";
 import { Session } from '@supabase/supabase-js';
 
-// Toast Notification Component
-const Toast = ({ message, onClose }: { message: string, onClose: () => void }) => (
-    <motion.div
-        initial={{ y: 50, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 50, opacity: 0 }}
-        className="toast-container glass-panel"
-    >
-        <div className="toast-content">
-            <div className="toast-icon"><Send size={18} /></div>
-            <p>{message}</p>
-        </div>
-        <button onClick={onClose}><X size={14} /></button>
-        <style jsx>{`
-      .toast-container {
-        position: fixed; bottom: 32px; right: 32px;
-        padding: 16px 20px; z-index: 2000;
-        display: flex; align-items: center; gap: 16px;
-        background: var(--primary);
-        color: white; border: none;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-      }
-      .toast-content { display: flex; align-items: center; gap: 12px; }
-      .toast-icon { background: rgba(255,255,255,0.2); padding: 8px; border-radius: 8px; }
-    `}</style>
-    </motion.div>
-);
+// --- Components ---
+
+const Toast = ({ message, type = 'info', onClose }: { message: string, type?: 'info' | 'error' | 'success', onClose: () => void }) => {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 4000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    return (
+        <motion.div
+            initial={{ y: 100, opacity: 0, scale: 0.9 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 100, opacity: 0, scale: 0.9 }}
+            className={`toast-container ${type}`}
+        >
+            <div className="toast-content">
+                <div className="toast-icon">
+                    {type === 'error' ? <Bug size={18} /> : type === 'success' ? <CheckCircle2 size={18} /> : <Zap size={18} />}
+                </div>
+                <p>{message}</p>
+            </div>
+            <button onClick={onClose} className="toast-close"><X size={14} /></button>
+        </motion.div>
+    );
+};
 
 const Modal = ({ title, children, onClose }: { title: string, children: React.ReactNode, onClose: () => void }) => (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
         <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
             className="modal-content glass-panel"
         >
             <div className="modal-header">
                 <h3>{title}</h3>
-                <button onClick={onClose} className="icon-btn-sm"><X size={20} /></button>
+                <button onClick={onClose} className="icon-btn-sm circle-btn"><X size={20} /></button>
             </div>
-            {children}
+            <div className="modal-body">
+                {children}
+            </div>
         </motion.div>
     </div>
 );
 
+// --- Main Application ---
+
 export default function Dashboard() {
+    // State
     const [activeTab, setActiveTab] = useState("dashboard");
     const [members, setMembers] = useState<Member[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [meetings, setMeetings] = useState<Meeting[]>([]);
     const [currentUser, setCurrentUser] = useState<Member | null>(null);
     const [showModal, setShowModal] = useState<string | null>(null);
-    const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [currentTime, setCurrentTime] = useState<Date | null>(null);
     const [isInitialized, setIsInitialized] = useState(false);
-    const [toast, setToast] = useState<string | null>(null);
-    const [confirmAction, setConfirmAction] = useState<{ title: string, message: string, onConfirm: () => void } | null>(null);
+    const [toast, setToast] = useState<{ msg: string, type: 'info' | 'error' | 'success' } | null>(null);
     const [session, setSession] = useState<Session | null>(null);
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [mindItems, setMindItems] = useState<any[]>([]);
     const [comments, setComments] = useState<any[]>([]);
-    const [resources, setResources] = useState<any[]>([]);
     const [selectedChatTask, setSelectedChatTask] = useState<string | null>(null);
     const [dbStatus, setDbStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
 
-    useEffect(() => {
-        const checkConnection = async () => {
-            if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-                console.error("Supabase URL is missing in environment!");
-                setDbStatus('offline');
-                return;
-            }
-            try {
-                const { error } = await supabase.from('members').select('count', { count: 'exact', head: true });
-                setDbStatus(error ? 'offline' : 'online');
-            } catch {
-                setDbStatus('offline');
-            }
-        };
-        checkConnection();
-    }, []);
+    const chatEndRef = useRef<HTMLDivElement>(null);
 
+    // Initial session check
     useEffect(() => {
-        // Handle Session
+        // 1. Initial Session Check
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
+            if (!session) setIsInitialized(true);
         });
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        // 2. Auth State Listener (Triggered on login/logout)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             setSession(session);
+            if (event === 'SIGNED_OUT') {
+                window.location.reload(); // Clear all state on logout
+            } else if (event === 'SIGNED_IN') {
+                // No reload needed, state will trigger fetchData
+            }
         });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    // Data Fetching and Real-time
+    useEffect(() => {
+        if (!session) return;
 
         const fetchData = async () => {
-            if (!session) return;
-
             try {
-                // 1. Fetch Current User Member Profile
-                const { data: profile, error: profileErr } = await supabase
-                    .from('members')
-                    .select('*')
-                    .eq('id', session.user.id)
-                    .single();
+                setDbStatus('connecting');
 
-                if (profile) {
-                    setCurrentUser(profile);
-                } else if (!profileErr || profileErr.code === 'PGRST116') {
-                    // Auto-create profile if missing (PGRST116 is 'no rows returned')
-                    const { data: newProfile } = await supabase.from('members').insert([{
-                        id: session.user.id,
-                        name: session.user.user_metadata.name || 'Anonymous',
-                        email: session.user.email,
-                        role: 'member',
-                        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`
-                    }]).select().single();
-                    if (newProfile) setCurrentUser(newProfile);
-                }
+                // Fetch User Profile
+                const { data: profile, error: profErr } = await supabase.from('members').select('*').eq('id', session.user.id).single();
+                if (profile) setCurrentUser(profile);
+                if (profErr) console.warn("Profile not found, user might be new");
 
-                // 2. Fetch all Members
-                const { data: membersData } = await supabase.from('members').select('*');
-                if (membersData && membersData.length > 0) {
-                    setMembers(membersData);
-                } else if (profile) {
-                    // If no members in DB yet, at least show the current user
-                    setMembers([profile]);
-                }
+                // Fetch Core Data
+                const [membersRes, tasksRes, meetingsRes, mindRes, commentsRes] = await Promise.all([
+                    supabase.from('members').select('*'),
+                    supabase.from('tasks').select('*').order('created_at', { ascending: false }),
+                    supabase.from('meetings').select('*').order('start_time', { ascending: true }),
+                    supabase.from('mindspace_items').select('*').order('created_at', { ascending: false }),
+                    supabase.from('task_comments').select('*').order('created_at', { ascending: true })
+                ]);
 
-                // 3. Fetch Tasks
-                const { data: tasksData } = await supabase.from('tasks').select('*');
-                if (tasksData) {
-                    setTasks(tasksData.map(t => ({
-                        ...t,
-                        assigneeId: t.assignee_id
-                    })));
-                }
+                if (membersRes.data) setMembers(membersRes.data);
+                if (tasksRes.data) setTasks(tasksRes.data.map(t => ({ ...t, assigneeId: t.assignee_id })));
+                if (meetingsRes.data) setMeetings(meetingsRes.data.map(m => ({ ...m, startTime: m.start_time, suggestedBy: m.suggested_by })));
+                if (mindRes.data) setMindItems(mindRes.data);
+                if (commentsRes.data) setComments(commentsRes.data);
 
-                // 4. Fetch Meetings
-                const { data: meetingsData } = await supabase.from('meetings').select('*');
-                if (meetingsData) {
-                    setMeetings(meetingsData.map(m => ({
-                        ...m,
-                        startTime: m.start_time,
-                        suggestedBy: m.suggested_by
-                    })));
-                }
-
-                // 5. Fetch Mindspace
-                const { data: mindData } = await supabase.from('mindspace_items').select('*').order('created_at', { ascending: false });
-                if (mindData) setMindItems(mindData);
-
-                // 6. Fetch Resources
-                const { data: resData } = await supabase.from('resources').select('*').order('category');
-                if (resData) setResources(resData);
-
-                // 7. Fetch Comments
-                const { data: commentData } = await supabase.from('task_comments').select('*').order('created_at', { ascending: true });
-                if (commentData) setComments(commentData);
-
-            } catch (err: any) {
-                console.error("Critical error fetching data:", err);
-                if (err.message === 'Failed to fetch') {
-                    showNotification("Network Error: Check your internet or ad-blocker.");
-                } else {
-                    showNotification(`Sync Error: ${err.message}`);
-                }
+                setDbStatus('online');
+            } catch (err) {
+                console.error("Fetch error:", err);
+                setDbStatus('offline');
             } finally {
                 setIsInitialized(true);
             }
         };
 
-        // 5. Setup Real-time Subscriptions
-        const tasksChannel = supabase.channel('tasks-realtime')
+        fetchData();
+
+        // Real-time Subscriptions
+        const tasksChannel = supabase.channel('tasks-sync')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') {
-                    const newTask = { ...payload.new, assigneeId: payload.new.assignee_id };
-                    setTasks(prev => {
-                        if (prev.find(t => t.id === newTask.id)) return prev;
-                        return [...prev, newTask];
-                    });
-                } else if (payload.eventType === 'UPDATE') {
-                    const updatedTask = { ...payload.new, assigneeId: payload.new.assignee_id };
-                    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
-                } else if (payload.eventType === 'DELETE') {
-                    setTasks(prev => prev.filter(t => t.id !== payload.old.id));
-                }
-            })
-            .subscribe();
+                if (payload.eventType === 'INSERT') setTasks(prev => [{ ...payload.new, assigneeId: payload.new.assignee_id }, ...prev]);
+                else if (payload.eventType === 'UPDATE') setTasks(prev => prev.map(t => t.id === payload.new.id ? { ...payload.new, assigneeId: payload.new.assignee_id } : t));
+                else if (payload.eventType === 'DELETE') setTasks(prev => prev.filter(t => t.id !== payload.old.id));
+            }).subscribe();
 
-        const meetingsChannel = supabase.channel('meetings-realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'meetings' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') {
-                    const newMeet = { ...payload.new, startTime: payload.new.start_time, suggestedBy: payload.new.suggested_by };
-                    setMeetings(prev => {
-                        if (prev.find(m => m.id === newMeet.id)) return prev;
-                        return [...prev, newMeet];
-                    });
-                } else if (payload.eventType === 'DELETE') {
-                    setMeetings(prev => prev.filter(m => m.id !== payload.old.id));
-                }
+        const commentsChannel = supabase.channel('comments-sync')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments' }, (payload) => {
+                setComments(prev => [...prev, payload.new]);
             })
-            .subscribe();
-
-        const membersChannel = supabase.channel('members-realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') {
-                    setMembers(prev => {
-                        if (prev.find(m => m.id === payload.new.id)) return prev;
-                        return [...prev, payload.new];
-                    });
-                } else if (payload.eventType === 'UPDATE') {
-                    setMembers(prev => prev.map(m => m.id === payload.new.id ? payload.new : m));
-                    if (session?.user.id === payload.new.id) setCurrentUser(payload.new);
-                } else if (payload.eventType === 'DELETE') {
-                    setMembers(prev => prev.filter(m => m.id !== payload.old.id));
-                }
-            })
-            .subscribe();
-
-        const mindChannel = supabase.channel('mind-realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'mindspace_items' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') {
-                    setMindItems(prev => {
-                        if (prev.find(i => i.id === payload.new.id)) return prev;
-                        return [payload.new, ...prev];
-                    });
-                } else if (payload.eventType === 'UPDATE') {
-                    setMindItems(prev => prev.map(i => i.id === payload.new.id ? payload.new : i));
-                } else if (payload.eventType === 'DELETE') {
-                    setMindItems(prev => prev.filter(i => i.id !== payload.old.id));
-                }
-            })
-            .subscribe();
-
-        const commentsChannel = supabase.channel('comments-realtime')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments' }, (payload: any) => {
-                setComments(prev => {
-                    if (prev.find(c => c.id === payload.new.id)) return prev;
-                    return [...prev, payload.new];
-                });
-            })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'task_comments' }, (payload: any) => {
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'task_comments' }, (payload) => {
                 setComments(prev => prev.filter(c => c.id !== payload.old.id));
-            })
-            .subscribe();
+            }).subscribe();
 
-        const resourcesChannel = supabase.channel('resources-realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'resources' }, (payload: any) => {
-                if (payload.eventType === 'INSERT') setResources(prev => [...prev, payload.new]);
-                else if (payload.eventType === 'DELETE') setResources(prev => prev.filter(r => r.id !== payload.old.id));
-            })
-            .subscribe();
+        const mindChannel = supabase.channel('mind-sync')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'mindspace_items' }, (payload: any) => {
+                if (payload.eventType === 'INSERT') setMindItems(prev => [payload.new, ...prev]);
+                else if (payload.eventType === 'UPDATE') setMindItems(prev => prev.map(i => i.id === payload.new.id ? payload.new : i));
+                else if (payload.eventType === 'DELETE') setMindItems(prev => prev.filter(i => i.id !== payload.old.id));
+            }).subscribe();
 
-        if (session) {
-            fetchData();
-        } else {
-            setIsInitialized(true);
-        }
+        const clockInterval = setInterval(() => setCurrentTime(new Date()), 1000);
 
-        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => {
-            clearInterval(timer);
-            subscription.unsubscribe();
+            clearInterval(clockInterval);
             supabase.removeChannel(tasksChannel);
-            supabase.removeChannel(meetingsChannel);
-            supabase.removeChannel(membersChannel);
-            supabase.removeChannel(mindChannel);
             supabase.removeChannel(commentsChannel);
-            supabase.removeChannel(resourcesChannel);
+            supabase.removeChannel(mindChannel);
         };
     }, [session]);
 
-    if (!isInitialized) return <div className="loading-screen" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading Workspace...</div>;
+    // Scroll to bottom of chat
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [comments, selectedChatTask]);
 
-    if (!session) {
-        return <Auth onAuthSuccess={() => window.location.reload()} />;
-    }
-
+    // Helpers
+    const showNotification = (msg: string, type: 'info' | 'error' | 'success' = 'info') => setToast({ msg, type });
     const getAssignee = (id: string) => members.find(m => m.id === id);
-    const getTask = (id: string) => tasks.find(t => t.id === id);
-    const isAdmin = currentUser?.role.toLowerCase().includes('admin');
+    const isAdmin = currentUser?.role?.toLowerCase().includes('admin');
 
+    // Actions
     const handleLogout = async () => {
         await supabase.auth.signOut();
         setSession(null);
-    };
-
-    const showNotification = (msg: string) => {
-        setToast(msg);
-        setTimeout(() => setToast(null), 4000);
+        window.location.reload();
     };
 
     const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
-        const notify = formData.get('notify') === 'on';
-        const assigneeId = formData.get('assigneeId') as string;
-        const assignee = getAssignee(assigneeId);
-        const title = formData.get('title') as string;
-
         const taskData = {
-            title,
+            title: formData.get('title') as string,
             description: formData.get('description') as string,
-            assignee_id: assigneeId,
+            assignee_id: formData.get('assigneeId') as string,
             deadline: formData.get('deadline') as string,
-            priority: formData.get('priority') as 'low' | 'medium' | 'high',
+            priority: formData.get('priority') as string,
+            status: 'todo'
         };
-
-        if (editingTask) {
-            const { error } = await supabase.from('tasks').update(taskData).eq('id', editingTask.id);
-            if (!error) {
-                setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...taskData, assigneeId } : t));
-                showNotification("Task updated successfully");
-            } else {
-                console.error("Error updating task:", error);
-                showNotification("Error: Could not update task");
-            }
-            setEditingTask(null);
+        const { error } = await supabase.from('tasks').insert([taskData]);
+        if (error) {
+            showNotification(`Failed to create task: ${error.message}`, 'error');
         } else {
-            const { data, error } = await supabase.from('tasks').insert([{ ...taskData, status: 'todo' }]).select();
-            if (data && !error) {
-                const newTask = { ...data[0], id: data[0].id, assigneeId: data[0].assignee_id };
-                setTasks(prev => {
-                    if (prev.find(t => t.id === newTask.id)) return prev;
-                    return [...prev, newTask];
-                });
-                showNotification("Task created successfully");
-            } else {
-                console.error("Supabase Error:", error);
-                showNotification(`Error: ${error?.message || "Could not create task"}`);
-            }
-        }
-
-        setShowModal(null);
-    };
-
-    const handleDeleteTask = async (id: string) => {
-        setConfirmAction({
-            title: "Delete Task",
-            message: "Are you sure you want to permanently delete this task?",
-            onConfirm: async () => {
-                const { error } = await supabase.from('tasks').delete().eq('id', id);
-                if (!error) {
-                    setTasks(prev => prev.filter(t => t.id !== id));
-                    showNotification("Task deleted");
-                }
-                setConfirmAction(null);
-            }
-        });
-    };
-
-    const openEditTask = (task: Task) => {
-        setEditingTask(task);
-        setShowModal('task');
-    };
-
-    const handleAddMember = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        const memberData = {
-            name: formData.get('name') as string,
-            email: formData.get('email') as string,
-            role: formData.get('role') as string,
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.get('name')}`,
-        };
-
-        const { data, error } = await supabase.from('members').insert([memberData]).select();
-        if (data && !error) {
-            setMembers(prev => [...prev, data[0]]);
-            showNotification(`${memberData.name} added to team`);
-        }
-        setShowModal(null);
-    };
-
-    const handleDeleteMember = async (memberId: string) => {
-        if (memberId === currentUser?.id) {
-            showNotification("Cannot delete your own active profile.");
-            return;
-        }
-        setConfirmAction({
-            title: "Remove Member",
-            message: "Are you sure you want to remove this member?",
-            onConfirm: async () => {
-                const { error } = await supabase.from('members').delete().eq('id', memberId);
-                if (!error) {
-                    setMembers(prev => prev.filter(m => m.id !== memberId));
-                    setTasks(prev => prev.filter(t => t.assigneeId !== memberId));
-                    showNotification("Member removed");
-                }
-                setConfirmAction(null);
-            }
-        });
-    };
-
-    const handleDeleteMeeting = async (id: string) => {
-        setConfirmAction({
-            title: "Cancel Meeting",
-            message: "Are you sure you want to cancel this meeting?",
-            onConfirm: async () => {
-                const { error } = await supabase.from('meetings').delete().eq('id', id);
-                if (!error) {
-                    setMeetings(prev => prev.filter(m => m.id !== id));
-                    showNotification("Meeting cancelled");
-                }
-                setConfirmAction(null);
-            }
-        });
-    };
-
-    const handleSuggestMeeting = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        const notify = formData.get('notify') === 'on';
-        const title = formData.get('title') as string;
-        const time = formData.get('time') as string;
-
-        const meetData = {
-            title,
-            start_time: time,
-            link: formData.get('link') as string,
-            suggested_by: currentUser?.id,
-        };
-
-        const { data, error } = await supabase.from('meetings').insert([meetData]).select();
-        if (data && !error) {
-            const newMeet = { ...data[0], startTime: data[0].start_time, suggestedBy: data[0].suggested_by };
-            setMeetings(prev => [...prev, newMeet]);
-            showNotification("Meeting suggested");
-        }
-        setShowModal(null);
-    };
-
-    const toggleTaskStatus = async (id: string) => {
-        const task = tasks.find(t => t.id === id);
-        if (!task) return;
-
-        const nextStatus = task.status === 'todo' ? 'in-progress' : task.status === 'in-progress' ? 'completed' : 'todo';
-        const { error } = await supabase.from('tasks').update({ status: nextStatus }).eq('id', id);
-
-        if (!error) {
-            setTasks(prev => prev.map(t => t.id === id ? { ...t, status: nextStatus } : t));
+            showNotification("Goal locked in! Let's get to work.", 'success');
+            setShowModal(null);
         }
     };
 
     const handleAddMindItem = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
-        const title = formData.get('title') as string;
-        const description = formData.get('description') as string;
-        const type = formData.get('type') as 'idea' | 'issue';
-
-        if (!title.trim() || !description.trim()) return;
-
         const item = {
-            title,
-            description,
-            type,
+            title: formData.get('title') as string,
+            description: formData.get('description') as string,
+            type: formData.get('type') as string,
             author_id: session?.user.id,
             upvotes: 0
         };
-
-        const { data, error } = await supabase.from('mindspace_items').insert([item]).select();
+        const { error } = await supabase.from('mindspace_items').insert([item]);
         if (error) {
-            console.error("Mindspace Error:", error);
-            showNotification(`Error: ${error.message}`);
+            showNotification(`Database Error: ${error.message}. Is the table 'mindspace_items' created?`, 'error');
         } else {
-            showNotification(`${type === 'idea' ? 'Idea' : 'Issue'} shared!`);
-            // Realtime will handle the state update if enabled, but let's be safe
-            if (data && data[0]) {
-                setMindItems(prev => {
-                    if (prev.find(i => i.id === data[0].id)) return prev;
-                    return [data[0], ...prev];
-                });
-            }
+            showNotification("Your thought is now in the orbit!", 'success');
             setShowModal(null);
-            e.currentTarget.reset();
         }
     };
 
     const handleUpvote = async (id: string, current: number) => {
-        await supabase.from('mindspace_items').update({ upvotes: current + 1 }).eq('id', id);
-    };
-
-    const handleConvertToTask = async (item: any) => {
-        const taskData = {
-            title: item.title,
-            description: item.description,
-            priority: item.type === 'issue' ? 'high' : 'medium',
-            status: 'todo',
-            assignee_id: session?.user.id
-        };
-        const { error: taskErr } = await supabase.from('tasks').insert([taskData]);
-        if (!taskErr) {
-            await supabase.from('mindspace_items').delete().eq('id', item.id);
-            showNotification("Converted to task!");
-        }
-    };
-
-    const handleDeleteComment = async (id: string) => {
-        const { error } = await supabase.from('task_comments').delete().eq('id', id);
-        if (error) {
-            showNotification(`Error: ${error.message}`);
-        } else {
-            setComments(prev => prev.filter(c => c.id !== id));
-        }
+        const { error } = await supabase.from('mindspace_items').update({ upvotes: current + 1 }).eq('id', id);
+        if (error) showNotification("Upvote failed", "error");
     };
 
     const handleAddComment = async (e: React.FormEvent<HTMLFormElement>, taskId: string) => {
@@ -549,267 +268,113 @@ export default function Dashboard() {
         const content = input.value.trim();
         if (!content || !taskId) return;
 
-        // Clear input immediately for WhatsApp-like feel
         input.value = '';
+        const { error } = await supabase.from('task_comments').insert([{
+            task_id: taskId,
+            author_id: session?.user.id,
+            content: content
+        }]);
 
-        try {
-            const { data, error } = await supabase.from('task_comments').insert([{
-                task_id: taskId,
-                author_id: session?.user.id,
-                content: content
-            }]).select();
-
-            if (error) {
-                console.error("Comment Error:", error);
-                showNotification(`Error: ${error.message}`);
-            } else if (data && data[0]) {
-                setComments(prev => {
-                    if (prev.find(c => c.id === data[0].id)) return prev;
-                    return [...prev, data[0]];
-                });
-            }
-        } catch (err: any) {
-            console.error("Chatting Failure:", err);
-            showNotification(`Network Error: ${err.message}`);
-        }
+        if (error) showNotification(`failed to send: ${error.message}`, 'error');
     };
 
-    const handleAddResource = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        const res = {
-            title: formData.get('title') as string,
-            url: formData.get('url') as string,
-            category: formData.get('category') as string,
-            added_by: session?.user.id
+    const handleDeleteComment = async (id: string) => {
+        const { error } = await supabase.from('task_comments').delete().eq('id', id);
+        if (error) showNotification("Delete failed", "error");
+    };
+
+    const handleDeleteMindItem = async (id: string) => {
+        const { error } = await supabase.from('mindspace_items').delete().eq('id', id);
+        if (error) showNotification("Delete failed", "error");
+        else showNotification("Thought cleared from orbit", "success");
+    };
+
+    const handleConvertToTask = async (item: any) => {
+        const taskData = {
+            title: item.title,
+            description: item.description,
+            assignee_id: session?.user.id,
+            priority: 'medium',
+            status: 'todo'
         };
-        const { error } = await supabase.from('resources').insert([res]);
-        if (!error) {
-            showNotification("Resource added to Vault");
-            setShowModal(null);
+
+        const { error: taskErr } = await supabase.from('tasks').insert([taskData]);
+        if (taskErr) {
+            showNotification(`Failed to convert: ${taskErr.message}`, 'error');
+            return;
+        }
+
+        const { error: delErr } = await supabase.from('mindspace_items').delete().eq('id', item.id);
+
+        if (delErr) {
+            showNotification("Task created, but failed to remove from Mindspace", "info");
+        } else {
+            showNotification("Idea graduated to Task!", "success");
+            setActiveTab('tasks');
         }
     };
 
-    const renderDashboard = () => (
-        <div className="dashboard-content fade-in">
-            <header className="content-header">
+    const handleDeleteTask = async (id: string) => {
+        const { error } = await supabase.from('tasks').delete().eq('id', id);
+        if (error) showNotification("Delete failed", "error");
+        else showNotification("Task removed", "success");
+    };
+
+    const toggleTaskStatus = async (id: string) => {
+        const task = tasks.find(t => t.id === id);
+        if (!task) return;
+        const nextStatus = task.status === 'todo' ? 'in-progress' : task.status === 'in-progress' ? 'completed' : 'todo';
+        await supabase.from('tasks').update({ status: nextStatus }).eq('id', id);
+    };
+
+    // --- Render Functions ---
+
+    const renderTasks = () => (
+        <div className="tasks-view fade-in full-height-view">
+            <header className="view-header">
                 <div>
-                    <h1>Welcome, {currentUser?.name}</h1>
-                    <p className="subtitle">{currentTime?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                    <h1>Workspace Tasks</h1>
+                    <p className="subtitle">Organize, track, and crush your goals.</p>
                 </div>
-                <div className="header-actions">
-                    <div className={`db-status-pill ${dbStatus}`}>
-                        <div className="status-dot"></div>
-                        <span>Supabase: {dbStatus === 'online' ? 'Live' : dbStatus === 'offline' ? 'Blocked' : 'Connecting...'}</span>
-                    </div>
-                    <div className="search-bar"><Search size={18} /><input type="text" placeholder="Search tasks..." /></div>
-                    <button className="icon-btn"><Bell size={20} /></button>
-                    <img src={currentUser?.avatar} className="profile-img-header" alt="" />
-                </div>
+                <button className="primary-btn glow-btn" onClick={() => setShowModal('task')}>
+                    <Plus size={18} /> New Task
+                </button>
             </header>
 
-            <div className="stats-grid">
-                <div className="stat-card glass-panel" onClick={() => setActiveTab('tasks')} style={{ cursor: 'pointer' }}>
-                    <div className="stat-icon" style={{ backgroundColor: '#3b82f620', color: '#3b82f6' }}><CheckSquare size={24} /></div>
-                    <div className="stat-info"><h3>{tasks.filter(t => t.status !== 'completed').length}</h3><p>Active Tasks</p></div>
-                </div>
-                <div className="stat-card glass-panel" onClick={() => setActiveTab('mindspace')} style={{ cursor: 'pointer' }}>
-                    <div className="stat-icon" style={{ backgroundColor: '#14b8a620', color: '#14b8a6' }}><Lightbulb size={24} /></div>
-                    <div className="stat-info"><h3>{mindItems.length}</h3><p>Mindspace Items</p></div>
-                </div>
-                <div className="stat-card glass-panel">
-                    <div className="stat-icon" style={{ backgroundColor: '#8b5cf620', color: '#8b5cf6' }}><Video size={24} /></div>
-                    <div className="stat-info"><h3>{meetings.length}</h3><p>Syncs Scheduled</p></div>
-                </div>
-                <div className="stat-card glass-panel" onClick={() => setActiveTab('vault')} style={{ cursor: 'pointer' }}>
-                    <div className="stat-icon" style={{ backgroundColor: '#f59e0b20', color: '#f59e0b' }}><Folder size={24} /></div>
-                    <div className="stat-info"><h3>{resources.length}</h3><p>Vault Resources</p></div>
-                </div>
-                <div className="stat-card glass-panel" onClick={() => setActiveTab('chat')} style={{ cursor: 'pointer' }}>
-                    <div className="stat-icon" style={{ backgroundColor: '#ec489920', color: '#ec4899' }}><MessagesSquare size={24} /></div>
-                    <div className="stat-info"><h3>{new Set(comments.map(c => c.task_id)).size}</h3><p>Active Threads</p></div>
-                </div>
-            </div>
-
-            <div className="dashboard-main-grid">
-                <div className="tasks-preview glass-panel">
-                    <div className="section-header"><h2>Live Task Feed</h2><button className="text-btn" onClick={() => setActiveTab('tasks')}>Explore Board</button></div>
-                    <div className="task-list">
-                        {tasks.slice(0, 3).map(task => (
-                            <div key={task.id} className="task-preview-item">
-                                <div className={`priority-indicator ${task.priority}`}></div>
-                                <div className="task-body">
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <h4>{task.title}</h4>
-                                        <button className="icon-btn-xs" onClick={() => { setActiveTab('chat'); setSelectedChatTask(task.id); }}><MessagesSquare size={12} /> {comments.filter(c => c.task_id === task.id).length}</button>
-                                    </div>
-                                    <div className="task-meta">
-                                        <span><Clock size={14} /> {task.deadline}</span>
-                                        <span className="assignee-tag"><img src={getAssignee(task.assigneeId)?.avatar} alt="" /> {getAssignee(task.assigneeId)?.name}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="meetings-preview glass-panel">
-                    <div className="section-header"><h2>Upcoming</h2><button className="primary-btn sm" onClick={() => setShowModal('meeting')}><Plus size={16} /> Suggest</button></div>
-                    <div className="meetings-list">
-                        {meetings.map((meet, i) => (
-                            <div key={meet.id} className="meeting-item">
-                                <div className="meeting-time">
-                                    <span className="time">{new Date(meet.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                </div>
-                                <div className="meeting-details">
-                                    <h4>{meet.title}</h4>
-                                    <div className="meeting-actions-row">
-                                        <a href={meet.link} target="_blank" rel="noreferrer" className="meeting-link">Join Google Meet <Video size={14} /></a>
-                                        <button className="icon-btn-xs" onClick={() => handleDeleteMeeting(meet.id)}><Trash2 size={12} /></button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-
-    const renderTeamTalk = () => (
-        <div className="chat-view fade-in">
-            <header className="content-header">
-                <div><h1>Team Talk</h1><p className="subtitle">Centralized Project Discussions</p></div>
-            </header>
-            <div className="chat-layout glass-panel">
-                <div className="chat-sidebar">
-                    <div className="sidebar-search">
-                        <Search size={16} />
-                        <input type="text" placeholder="Jump to thread..." />
-                    </div>
-                    <div className="chat-threads-list">
-                        {tasks.map(task => (
-                            <div
-                                key={task.id}
-                                className={`thread-item ${selectedChatTask === task.id ? 'active' : ''}`}
-                                onClick={() => setSelectedChatTask(task.id)}
-                            >
-                                <div className={`status-dot-sm ${task.priority}`}></div>
-                                <div className="thread-info">
-                                    <h4>{task.title}</h4>
-                                    <p>{comments.filter(c => c.task_id === task.id).length} messages</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="chat-main">
-                    {selectedChatTask ? (
-                        <>
-                            <div className="chat-header-banner">
-                                <div className="banner-info">
-                                    <MessagesSquare size={18} />
-                                    <h3>{getTask(selectedChatTask)?.title}</h3>
-                                </div>
-                                <span className={`priority-tag ${getTask(selectedChatTask)?.priority}`}>
-                                    {getTask(selectedChatTask)?.priority} priority
-                                </span>
-                            </div>
-                            <div className="chat-messages-container">
-                                {comments.filter(c => c.task_id === selectedChatTask).map((comm) => (
-                                    <div key={comm.id} className={`chat-bubble-row ${comm.author_id === session?.user.id ? 'mine' : ''}`}>
-                                        <div className="chat-bubble-content">
-                                            <div className="bubble-meta">
-                                                <span className="author">{getAssignee(comm.author_id)?.name || 'Member'}</span>
-                                                {(comm.author_id === session?.user.id || isAdmin) && (
-                                                    <button className="bubble-delete" onClick={() => handleDeleteComment(comm.id)}>
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <p className="text">{comm.content}</p>
-                                            <span className="time">{new Date(comm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <div className="tasks-board">
+                {['todo', 'in-progress', 'completed'].map(status => (
+                    <div key={status} className="board-column">
+                        <div className={`column-header ${status}`}>
+                            <div className="dot" />
+                            <h3>{status.replace('-', ' ').toUpperCase()}</h3>
+                            <span className="count">{tasks.filter(t => t.status === status).length}</span>
+                        </div>
+                        <div className="column-cards">
+                            {tasks.filter(t => t.status === status).map(t => (
+                                <motion.div layout key={t.id} className="task-item-card glass-panel">
+                                    <div className="card-top">
+                                        <span className={`priority-tag ${t.priority}`}>{t.priority}</span>
+                                        <div className="card-actions">
+                                            <button onClick={() => toggleTaskStatus(t.id)} className="card-action-btn" title="Update status">
+                                                {t.status === 'completed' ? <CheckCircle2 size={16} className="text-success" /> : <Clock size={16} />}
+                                            </button>
+                                            <button onClick={() => handleDeleteTask(t.id)} className="card-action-btn delete" title="Delete task">
+                                                <Trash2 size={16} />
+                                            </button>
                                         </div>
                                     </div>
-                                ))}
-                                {comments.filter(c => c.task_id === selectedChatTask).length === 0 && (
-                                    <div className="chat-empty">
-                                        <div className="empty-icon"><MessageSquare size={32} /></div>
-                                        <p>No messages here yet. Clear the air!</p>
+                                    <h4>{t.title}</h4>
+                                    <p>{t.description}</p>
+                                    <div className="card-bottom">
+                                        <div className="card-assignee">
+                                            <div className="avatar-small">{getAssignee(t.assigneeId)?.name[0] || 'U'}</div>
+                                            <span>{getAssignee(t.assigneeId)?.name || 'Guest'}</span>
+                                        </div>
+                                        <button className="discuss-trigger" onClick={() => { setSelectedChatTask(t.id); setActiveTab('chat'); }}>
+                                            <MessagesSquare size={14} />
+                                        </button>
                                     </div>
-                                )}
-                            </div>
-                            <form className="chat-input-row" onSubmit={(e) => handleAddComment(e, selectedChatTask)}>
-                                <input placeholder="Type your message..." required />
-                                <button type="submit" className="chat-send-btn"><Send size={18} /></button>
-                            </form>
-                        </>
-                    ) : (
-                        <div className="chat-selection-placeholder">
-                            <MessagesSquare size={48} />
-                            <h2>Pick a discussion thread</h2>
-                            <p>Select a task from the left to start collaborating with the team.</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-    const renderMindspace = () => (
-        <div className="mindspace-view fade-in">
-            <header className="content-header">
-                <div><h1>Mindspace</h1><p className="subtitle">Ideas & Bug Tracking Hub</p></div>
-                <div className="header-actions">
-                    <button className="primary-btn" onClick={() => setShowModal('mind')}><Plus size={20} /> Share Thought</button>
-                </div>
-            </header>
-            <div className="mind-grid">
-                {mindItems.map(item => (
-                    <div key={item.id} className="mind-card glass-panel">
-                        <div className="mind-card-header">
-                            <span className={`mind-badge ${item.type}`}>{item.type === 'idea' ? <Lightbulb size={12} /> : <Bug size={12} />} {item.type.toUpperCase()}</span>
-                            <button className="upvote-btn" onClick={() => handleUpvote(item.id, item.upvotes)}><ArrowUp size={14} /> {item.upvotes}</button>
-                        </div>
-                        <h3>{item.title}</h3>
-                        <p>{item.description}</p>
-                        <div className="mind-card-footer">
-                            <div className="author">
-                                <img src={getAssignee(item.author_id)?.avatar} alt="" />
-                                <span>{getAssignee(item.author_id)?.name}</span>
-                            </div>
-                            {isAdmin && <button className="secondary-btn sm" onClick={() => handleConvertToTask(item)}>Convert to Task</button>}
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-
-    const renderVault = () => (
-        <div className="vault-view fade-in">
-            <header className="content-header">
-                <div><h1>Resource Vault</h1><p className="subtitle">Project links and assets</p></div>
-                <div className="header-actions">
-                    {isAdmin && <button className="primary-btn" onClick={() => setShowModal('resource')}><Plus size={20} /> Add Resource</button>}
-                </div>
-            </header>
-            <div className="vault-grid">
-                {Array.from(new Set(resources.map(r => r.category))).map(cat => (
-                    <div key={cat} className="vault-section">
-                        <h3 className="section-title">{cat}</h3>
-                        <div className="resources-list">
-                            {resources.filter(r => r.category === cat).map(res => (
-                                <div key={res.id} className="resource-card glass-panel">
-                                    <div className="res-icon"><LinkIcon size={20} /></div>
-                                    <div className="res-info">
-                                        <h4>{res.title}</h4>
-                                        <p>{new URL(res.url).hostname}</p>
-                                    </div>
-                                    <div className="res-actions">
-                                        <button className="icon-btn-sm" onClick={() => { navigator.clipboard.writeText(res.url); showNotification("Link copied!"); }}><Copy size={16} /></button>
-                                        <a href={res.url} target="_blank" rel="noreferrer" className="icon-btn-sm"><ExternalLink size={16} /></a>
-                                    </div>
-                                </div>
+                                </motion.div>
                             ))}
                         </div>
                     </div>
@@ -818,419 +383,807 @@ export default function Dashboard() {
         </div>
     );
 
-    return (
-        <div className="app-container">
-            <header className="mobile-header">
-                <div className="logo"><div className="logo-icon">TS</div><span>TeamSync</span></div>
-                <button className="icon-btn" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                    {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+    const renderMembers = () => (
+        <div className="members-view fade-in">
+            <header className="view-header">
+                <div>
+                    <h1>Team Directory</h1>
+                    <p className="subtitle">The brilliant minds behind TeamSync</p>
+                </div>
+                {isAdmin && <button className="primary-btn" onClick={() => showNotification("Admin: Add member feature coming soon")}>
+                    <UserPlus size={18} /> Invite Member
+                </button>}
+            </header>
+
+            <div className="members-directory-grid">
+                {members.map(m => (
+                    <motion.div whileHover={{ y: -5 }} key={m.id} className="member-status-card glass-panel">
+                        <div className="member-cover" />
+                        <div className="member-card-content">
+                            <div className="member-avatar-large">{m.name[0]}</div>
+                            <h3>{m.name}</h3>
+                            <span className="member-role">{m.role}</span>
+                            <div className="member-quick-stats">
+                                <div className="q-stat">
+                                    <label>Tasks</label>
+                                    <span>{tasks.filter(t => t.assigneeId === m.id).length}</span>
+                                </div>
+                                <div className="q-stat">
+                                    <label>Impact</label>
+                                    <span>{mindItems.filter(i => i.author_id === m.id).length}</span>
+                                </div>
+                            </div>
+                            <div className="member-actions">
+                                <button className="secondary-btn-sm" onClick={() => showNotification(`Messaging ${m.name}...`)}>
+                                    <Mail size={14} /> Message
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const renderDashboard = () => (
+        <div className="dashboard-content fade-in">
+            <header className="view-header">
+                <div>
+                    <h1>Sync Hub</h1>
+                    <p className="subtitle">{currentTime?.toLocaleTimeString()} • {currentTime?.toLocaleDateString()}</p>
+                </div>
+                <div className={`status-pill ${dbStatus}`}>
+                    <div className="dot" />
+                    <span>{dbStatus === 'online' ? 'Live Connection' : dbStatus === 'connecting' ? 'Connecting...' : 'Offline'}</span>
+                </div>
+            </header>
+
+            <div className="stats-grid">
+                <motion.div whileHover={{ scale: 1.02 }} className="stat-card glass-panel orange" onClick={() => setActiveTab('tasks')}>
+                    <div className="stat-icon"><CheckSquare /></div>
+                    <div className="stat-info">
+                        <h3>{tasks.filter(t => t.status !== 'completed').length}</h3>
+                        <p>Pending Tasks</p>
+                    </div>
+                    <div className="stat-trend"><TrendingUp size={14} /> +2 this week</div>
+                </motion.div>
+
+                <motion.div whileHover={{ scale: 1.02 }} className="stat-card glass-panel purple" onClick={() => setActiveTab('chat')}>
+                    <div className="stat-icon"><MessageSquare /></div>
+                    <div className="stat-info">
+                        <h3>{new Set(comments.map(c => c.task_id)).size}</h3>
+                        <p>Active Threads</p>
+                    </div>
+                </motion.div>
+
+                <motion.div whileHover={{ scale: 1.02 }} className="stat-card glass-panel green" onClick={() => setActiveTab('mindspace')}>
+                    <div className="stat-icon"><Lightbulb /></div>
+                    <div className="stat-info">
+                        <h3>{mindItems.length}</h3>
+                        <p>Shared Ideas</p>
+                    </div>
+                </motion.div>
+            </div>
+
+            <div className="dashboard-grid">
+                <section className="dashboard-section glass-panel">
+                    <div className="section-head">
+                        <h2>Priority Tasks</h2>
+                        <button className="text-btn" onClick={() => setActiveTab('tasks')}>View All</button>
+                    </div>
+                    <div className="task-list-mini">
+                        {tasks.filter(t => t.status !== 'completed').slice(0, 5).map(t => (
+                            <div key={t.id} className="mini-task-item">
+                                <div className={`priority-dot ${t.priority}`} />
+                                <span className="title">{t.title}</span>
+                                <button className="icon-btn-sm circle" onClick={() => { setSelectedChatTask(t.id); setActiveTab('chat'); }} title="Discuss">
+                                    <MessageCircle size={14} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+
+                <section className="dashboard-section glass-panel">
+                    <div className="section-head">
+                        <h2>Team Presence</h2>
+                    </div>
+                    <div className="members-mini-grid">
+                        {members.map(m => (
+                            <div key={m.id} className="member-mini-card">
+                                <div className="avatar-small">{m.name[0]}</div>
+                                <div className="name-box">
+                                    <span className="name">{m.name}</span>
+                                    <span className="role">{m.role}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            </div>
+        </div>
+    );
+
+    const renderTeamTalk = () => (
+        <div className="chat-view fade-in full-height-view">
+            <header className="view-header">
+                <h1>Team Talk</h1>
+            </header>
+
+            <div className="chat-interface glass-panel">
+                <div className="chat-sidebar">
+                    <div className="sidebar-search">
+                        <Search size={16} />
+                        <input placeholder="Search threads..." />
+                    </div>
+                    <div className="threads-list">
+                        {tasks.map(t => (
+                            <div
+                                key={t.id}
+                                className={`thread-card ${selectedChatTask === t.id ? 'active' : ''}`}
+                                onClick={() => setSelectedChatTask(t.id)}
+                            >
+                                <div className="thread-info">
+                                    <h4>{t.title}</h4>
+                                    <p>{comments.filter(c => c.task_id === t.id).length} messages</p>
+                                </div>
+                                {comments.filter(c => c.task_id === t.id).length > 0 && <div className="unread-dot" />}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="chat-main">
+                    {selectedChatTask ? (
+                        <>
+                            <div className="chat-header">
+                                <div className="header-info">
+                                    <h3>{tasks.find(t => t.id === selectedChatTask)?.title}</h3>
+                                    <div className="header-meta">
+                                        <Shield size={12} /> {tasks.find(t => t.id === selectedChatTask)?.priority} priority
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="messages-area">
+                                {comments.filter(c => c.task_id === selectedChatTask).map((c, i) => {
+                                    const isMine = c.author_id === session?.user.id;
+                                    const author = getAssignee(c.author_id);
+                                    return (
+                                        <div key={c.id} className={`message-row ${isMine ? 'mine' : ''}`}>
+                                            {!isMine && <div className="msg-avatar">{author?.name[0]}</div>}
+                                            <div className="msg-bubble-container">
+                                                {!isMine && <span className="msg-author">{author?.name}</span>}
+                                                <div className="msg-bubble">
+                                                    <p>{c.content}</p>
+                                                    <div className="msg-footer">
+                                                        <span className="msg-time">{new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        {isMine && <button onClick={() => handleDeleteComment(c.id)} className="msg-delete"><Trash2 size={10} /></button>}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                <div ref={chatEndRef} />
+                            </div>
+
+                            <form className="msg-input-bar" onSubmit={(e) => handleAddComment(e, selectedChatTask)}>
+                                <div className="input-wrapper">
+                                    <input placeholder="Type your message here..." required />
+                                    <button type="submit" className="send-btn"><Send size={18} /></button>
+                                </div>
+                            </form>
+                        </>
+                    ) : (
+                        <div className="chat-placeholder">
+                            <div className="placeholder-icon"><MessagesSquare size={64} /></div>
+                            <h2>Select a task to start talking</h2>
+                            <p>Collaborate in real-time on specific goals.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderMindspace = () => (
+        <div className="mind-view fade-in">
+            <header className="view-header">
+                <div>
+                    <h1>Mindspace</h1>
+                    <p className="subtitle">Think tank for the whole team</p>
+                </div>
+                <button className="primary-btn glow-btn" onClick={() => setShowModal('mind')}>
+                    <Plus size={18} /> New Thought
                 </button>
             </header>
 
-            <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
-                <div className="logo"><div className="logo-icon">TS</div><span>TeamSync</span></div>
-                <aside>
+            <div className="mind-grid">
+                {mindItems.map(item => (
+                    <motion.div
+                        layout
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        key={item.id}
+                        className={`mind-card glass-panel ${item.type}`}
+                    >
+                        <div className="mind-meta">
+                            <span className={`mind-type-pill ${item.type}`}>{item.type.toUpperCase()}</span>
+                            <div className="card-actions">
+                                <button onClick={() => handleConvertToTask(item)} className="card-action-btn" title="Convert to Task">
+                                    <ExternalLink size={14} />
+                                </button>
+                                <button onClick={() => handleDeleteMindItem(item.id)} className="card-action-btn delete" title="Delete Idea">
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        </div>
+                        <h3>{item.title}</h3>
+                        <p>{item.description}</p>
+                        <div className="mind-actions">
+                            <button className="upvote-btn" onClick={() => handleUpvote(item.id, item.upvotes)}>
+                                <ArrowUp size={16} /> {item.upvotes}
+                            </button>
+                            <div className="author-tag">
+                                <span>by {getAssignee(item.author_id)?.name || 'Member'}</span>
+                            </div>
+                        </div>
+                    </motion.div>
+                ))}
+            </div>
+        </div>
+    );
+
+    // --- Main Render ---
+
+    if (!isInitialized) return (
+        <div className="loading-screen">
+            <div className="loader-box">
+                <div className="loader-orbit" />
+                <div className="loader-text">TeamSync</div>
+            </div>
+        </div>
+    );
+
+    if (!session) return <Auth onAuthSuccess={() => window.location.reload()} />;
+
+    return (
+        <div className="app-shell">
+            <aside className="main-sidebar">
+                <div className="brand">
+                    <div className="brand-icon"><Sparkles size={20} /></div>
+                    <span>TeamSync</span>
+                </div>
+
+                <nav className="side-nav">
                     <ul>
-                        <li className={activeTab === "dashboard" ? "active" : ""} onClick={() => { setActiveTab("dashboard"); setIsSidebarOpen(false); }}><LayoutDashboard size={20} /> <span>Dashboard</span></li>
-                        <li className={activeTab === "tasks" ? "active" : ""} onClick={() => { setActiveTab("tasks"); setIsSidebarOpen(false); }}><CheckSquare size={20} /> <span>Tasks</span></li>
-                        <li className={activeTab === "mindspace" ? "active" : ""} onClick={() => { setActiveTab("mindspace"); setIsSidebarOpen(false); }}><Lightbulb size={20} /> <span>Mindspace</span></li>
-                        <li className={activeTab === 'vault' ? 'active' : ''} onClick={() => { setActiveTab('vault'); setIsSidebarOpen(false); }}>
-                            <Folder size={20} /> <span>Resource Vault</span>
+                        <li className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
+                            <LayoutDashboard size={20} /> <span>Dashboard</span>
                         </li>
-                        <li className={activeTab === 'chat' ? 'active' : ''} onClick={() => { setActiveTab('chat'); setIsSidebarOpen(false); }}>
+                        <li className={activeTab === 'tasks' ? 'active' : ''} onClick={() => setActiveTab('tasks')}>
+                            <CheckSquare size={20} /> <span>Tasks</span>
+                        </li>
+                        <li className={activeTab === 'members' ? 'active' : ''} onClick={() => setActiveTab('members')}>
+                            <Users size={20} /> <span>Team</span>
+                        </li>
+                        <li className={activeTab === 'chat' ? 'active' : ''} onClick={() => setActiveTab('chat')}>
                             <MessagesSquare size={20} /> <span>Team Talk</span>
                         </li>
-                        <li className={activeTab === "team" ? "active" : ""} onClick={() => { setActiveTab("team"); setIsSidebarOpen(false); }}><Users size={20} /> <span>Team Hub</span></li>
-                        <li onClick={handleLogout} className="logout-item">
-                            <LogOut size={20} /> <span>Logout</span>
+                        <li className={activeTab === 'mindspace' ? 'active' : ''} onClick={() => setActiveTab('mindspace')}>
+                            <Lightbulb size={20} /> <span>Mindspace</span>
                         </li>
                     </ul>
-                </aside>
+                </nav>
+
                 <div className="sidebar-footer">
-                    <div className="current-user-info">
-                        <img src={currentUser?.avatar} alt="" />
-                        <div className="user-details" style={{ overflow: 'hidden' }}>
-                            <p className="user-name" style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{currentUser?.name}</p>
-                            <p className="user-role" style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{currentUser?.role}</p>
+                    <div className="user-pill glass-panel">
+                        <div className="user-avatar">{currentUser?.name[0] || 'U'}</div>
+                        <div className="user-info">
+                            <span className="user-name">{currentUser?.name || 'User'}</span>
+                            <span className="user-role">{currentUser?.role || 'Member'}</span>
                         </div>
+                        <button onClick={handleLogout} className="logout-btn"><LogOut size={16} /></button>
                     </div>
                 </div>
-            </div>
+            </aside>
 
-            {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
-
-            <div className="bottom-nav">
-                <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => setActiveTab("dashboard")}><LayoutDashboard size={20} /><span>Home</span></button>
-                <button className={activeTab === "tasks" ? "active" : ""} onClick={() => setActiveTab("tasks")}><CheckSquare size={20} /><span>Tasks</span></button>
-                <button className={activeTab === "mindspace" ? "active" : ""} onClick={() => setActiveTab("mindspace")}><Plus size={24} className="add-btn-mobile" /></button>
-                <button className={activeTab === "vault" ? "active" : ""} onClick={() => setActiveTab("vault")}><Folder size={20} /><span>Vault</span></button>
-                <button className={activeTab === "team" ? "active" : ""} onClick={() => setActiveTab("team")}><Users size={20} /><span>Team</span></button>
-            </div>
-
-            <div className="main-content">
+            <main className="main-content-area">
                 <AnimatePresence mode="wait">
-                    {activeTab === "dashboard" && <motion.div key="dash" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderDashboard()}</motion.div>}
-                    {activeTab === "mindspace" && <motion.div key="mind" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderMindspace()}</motion.div>}
-                    {activeTab === "vault" && <motion.div key="vault" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderVault()}</motion.div>}
-                    {activeTab === "chat" && <motion.div key="chat" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>{renderTeamTalk()}</motion.div>}
-
-                    {activeTab === "tasks" && (
-                        <motion.div key="tasks" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="tasks-view">
-                            <header className="content-header">
-                                <div><h1>Task Board</h1><p className="subtitle">Track team commitments</p></div>
-                                <div className="header-actions">
-                                    {isAdmin && <button className="primary-btn" onClick={() => setShowModal('task')}><Plus size={20} /> New Task</button>}
-                                </div>
-                            </header>
-                            <div className="kanban-board">
-                                {['todo', 'in-progress', 'completed'].map(status => (
-                                    <div key={status} className="kanban-column glass-panel">
-                                        <h3 className="column-title">{status.toUpperCase()}</h3>
-                                        <div className="column-content">
-                                            {tasks.filter(t => t.status === status).map((task, i) => (
-                                                <div key={i} className="task-card">
-                                                    <div className="task-card-header">
-                                                        <span className={`badge ${task.priority}`}>{task.priority}</span>
-                                                        <div className="card-actions">
-                                                            <button className="icon-btn-xs" onClick={() => { setActiveTab('chat'); setSelectedChatTask(task.id); }}><MessagesSquare size={14} /></button>
-                                                            <button className="icon-btn-xs" onClick={() => openEditTask(task)}><Plus size={14} /></button>
-                                                            <button className="icon-btn-xs" onClick={() => handleDeleteTask(task.id)}><Trash2 size={14} /></button>
-                                                        </div>
-                                                    </div>
-                                                    <h4>{task.title}</h4>
-                                                    <p>{task.description}</p>
-                                                    <div className="task-card-footer">
-                                                        <div className="assignee">
-                                                            <img src={getAssignee(task.assigneeId)?.avatar} alt="" />
-                                                            <span>{getAssignee(task.assigneeId)?.name}</span>
-                                                        </div>
-                                                        <button
-                                                            className={`status-btn ${task.status}`}
-                                                            onClick={() => toggleTaskStatus(task.id)}
-                                                            title="Toggle status"
-                                                        >
-                                                            <CheckSquare size={14} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {activeTab === "team" && (
-                        <motion.div key="team" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="team-view">
-                            <header className="content-header">
-                                <div><h1>Team Hub</h1><p className="subtitle">Member directory and access</p></div>
-                                <div className="header-actions">
-                                    {isAdmin && <button className="primary-btn" onClick={() => setShowModal('member')}><UserPlus size={20} /> Add Member</button>}
-                                </div>
-                            </header>
-                            <div className="members-grid">
-                                {members.map(member => (
-                                    <div key={member.id} className="member-card glass-panel">
-                                        <div className="member-avatar-large"><img src={member.avatar} alt="" /></div>
-                                        <h3>{member.name}</h3>
-                                        <p className="member-role">{member.role}</p>
-                                        <p className="member-email"><Mail size={14} style={{ marginRight: '4px' }} /> {member.email}</p>
-                                        <div className="member-actions" style={{ marginTop: '16px' }}>
-                                            <button className="secondary-btn" onClick={() => setCurrentUser(member)}>Assume Profile</button>
-                                            {isAdmin && (
-                                                <button className="icon-btn-sm" onClick={() => handleDeleteMember(member.id)} style={{ color: 'var(--error)' }}>
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </motion.div>
-                    )}
+                    {activeTab === 'dashboard' && <motion.div key="dash" exit={{ opacity: 0, x: -10 }} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>{renderDashboard()}</motion.div>}
+                    {activeTab === 'tasks' && <motion.div key="tasks" exit={{ opacity: 0, x: -10 }} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>{renderTasks()}</motion.div>}
+                    {activeTab === 'members' && <motion.div key="members" exit={{ opacity: 0, x: -10 }} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>{renderMembers()}</motion.div>}
+                    {activeTab === 'chat' && <motion.div key="chat" exit={{ opacity: 0, x: -10 }} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>{renderTeamTalk()}</motion.div>}
+                    {activeTab === 'mindspace' && <motion.div key="mind" exit={{ opacity: 0, x: -10 }} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>{renderMindspace()}</motion.div>}
                 </AnimatePresence>
-            </div>
+            </main>
 
-            {/* Modals */}
             <AnimatePresence>
-                {showModal === 'task' && (
-                    <Modal title={editingTask ? "Edit Task" : "Assign Task"} onClose={() => { setShowModal(null); setEditingTask(null); }}>
-                        <form onSubmit={handleAddTask} className="form-layout">
-                            <input name="title" defaultValue={editingTask?.title} placeholder="What needs to be done?" required />
-                            <textarea name="description" defaultValue={editingTask?.description} placeholder="Add more details..." required />
-
-                            <div className="assignee-select-container">
-                                <p className="label-sm">Assign To:</p>
-                                <div className="assignee-grid-select">
-                                    {members.map(m => (
-                                        <label key={m.id} className="assignee-option">
-                                            <input
-                                                type="radio"
-                                                name="assigneeId"
-                                                value={m.id}
-                                                defaultChecked={editingTask ? editingTask.assigneeId === m.id : members[0].id === m.id}
-                                                required
-                                            />
-                                            <div className="assignee-card-mini">
-                                                <img src={m.avatar} alt="" />
-                                                <span>{m.name.split(' ')[0]}</span>
-                                            </div>
-                                        </label>
-                                    ))}
-                                </div>
+                {showModal === 'mind' && (
+                    <Modal title="Share an Idea" onClose={() => setShowModal(null)}>
+                        <form onSubmit={handleAddMindItem} className="form-stack">
+                            <div className="input-group">
+                                <label>Title</label>
+                                <input name="title" placeholder="What's on your mind?" required />
                             </div>
-
-                            <div className="form-row">
-                                <div className="input-group">
-                                    <p className="label-sm">Deadline</p>
-                                    <input type="date" name="deadline" defaultValue={editingTask?.deadline} required />
+                            <div className="input-group">
+                                <label>Description</label>
+                                <textarea name="description" placeholder="Dive into details..." rows={4} required />
+                            </div>
+                            <div className="input-group">
+                                <label>Category</label>
+                                <select name="type">
+                                    <option value="idea">Bright Idea</option>
+                                    <option value="issue">Critical Issue</option>
+                                </select>
+                            </div>
+                            <button type="submit" className="primary-btn full-width">Launch Thought</button>
+                        </form>
+                    </Modal>
+                )}
+                {showModal === 'task' && (
+                    <Modal title="Create New Goal" onClose={() => setShowModal(null)}>
+                        <form onSubmit={handleAddTask} className="form-stack">
+                            <div className="input-group">
+                                <label>Title</label>
+                                <input name="title" placeholder="What needs to be done?" required />
+                            </div>
+                            <div className="input-group">
+                                <label>Description</label>
+                                <textarea name="description" placeholder="Add more context..." rows={3} />
+                            </div>
+                            <div className="input-row">
+                                <div className="input-group flex-1">
+                                    <label>Assign To</label>
+                                    <select name="assigneeId">
+                                        {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                    </select>
                                 </div>
-                                <div className="input-group">
-                                    <p className="label-sm">Priority</p>
-                                    <select name="priority" defaultValue={editingTask?.priority || "medium"}>
-                                        <option value="low">Low Priority</option>
-                                        <option value="medium">Medium Priority</option>
-                                        <option value="high">High Priority</option>
+                                <div className="input-group flex-1">
+                                    <label>Priority</label>
+                                    <select name="priority">
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
                                     </select>
                                 </div>
                             </div>
-                            <button type="submit" className="primary-btn full-width">
-                                {editingTask ? "Update Task" : "Create Task"}
-                            </button>
-                        </form>
-                    </Modal>
-                )}
-
-                {showModal === 'member' && (
-                    <Modal title="Invite Member" onClose={() => setShowModal(null)}>
-                        <form onSubmit={handleAddMember} className="form-layout">
-                            <input name="name" placeholder="Full Name" required />
-                            <input name="email" type="email" placeholder="Google Email Address" required />
-                            <input name="role" placeholder="Role (e.g. Lead Designer)" required />
-                            <button type="submit" className="primary-btn full-width">Add to Workspace</button>
-                        </form>
-                    </Modal>
-                )}
-
-                {showModal === 'meeting' && (
-                    <Modal title="Suggest Meeting" onClose={() => setShowModal(null)}>
-                        <form onSubmit={handleSuggestMeeting} className="form-layout">
-                            <input name="title" placeholder="Meeting Topic" required />
-                            <input name="time" type="datetime-local" defaultValue={new Date().toISOString().slice(0, 16)} required />
-                            <input name="link" placeholder="Meet Link" defaultValue="https://meet.google.com/new" required />
-                            <button type="submit" className="primary-btn full-width">Post Suggestion</button>
-                        </form>
-                    </Modal>
-                )}
-
-                {showModal === 'mind' && (
-                    <Modal title="Share Thought" onClose={() => setShowModal(null)}>
-                        <form onSubmit={handleAddMindItem} className="form-layout">
-                            <input name="title" placeholder="Idea or Issue Title" required />
-                            <textarea name="description" placeholder="Explain the thought..." required />
-                            <select name="type">
-                                <option value="idea">Idea</option>
-                                <option value="issue">Issue/Bug</option>
-                            </select>
-                            <button type="submit" className="primary-btn full-width">Post to Mindspace</button>
-                        </form>
-                    </Modal>
-                )}
-
-                {showModal === 'resource' && (
-                    <Modal title="Add to Vault" onClose={() => setShowModal(null)}>
-                        <form onSubmit={handleAddResource} className="form-layout">
-                            <input name="title" placeholder="Resource Name" required />
-                            <input name="url" type="url" placeholder="https://..." required />
-                            <input name="category" placeholder="Category (e.g. Design, API)" required />
-                            <button type="submit" className="primary-btn full-width">Link Resource</button>
-                        </form>
-                    </Modal>
-                )}
-            </AnimatePresence>
-
-            {/* Confirmation Modal */}
-            <AnimatePresence>
-                {confirmAction && (
-                    <div className="modal-overlay" style={{ zIndex: 3000 }}>
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="modal-content glass-panel confirm-dialog"
-                        >
-                            <h3>{confirmAction.title}</h3>
-                            <p>{confirmAction.message}</p>
-                            <div className="confirm-actions">
-                                <button className="secondary-btn" onClick={() => setConfirmAction(null)}>Cancel</button>
-                                <button className="primary-btn" style={{ backgroundColor: 'var(--error)' }} onClick={confirmAction.onConfirm}>Confirm</button>
+                            <div className="input-group">
+                                <label>Deadline</label>
+                                <input type="date" name="deadline" />
                             </div>
-                        </motion.div>
-                    </div>
+                            <button type="submit" className="primary-btn full-width">Lock Goal</button>
+                        </form>
+                    </Modal>
                 )}
             </AnimatePresence>
 
-            {/* Toast Notification */}
-            <AnimatePresence>
-                {toast && <Toast message={toast} onClose={() => setToast(null)} />}
-            </AnimatePresence>
+            {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
             <style jsx global>{`
-        .profile-img-header { width: 40px; height: 40px; border-radius: 12px; border: 2px solid var(--primary); }
-        .loading-screen { background: var(--background); color: white; font-size: 1.2rem; }
-        .checkbox-container { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-muted); cursor: pointer; margin-top: 4px; }
-        .checkbox-container input { width: 16px !important; height: 16px !important; margin: 0; cursor: pointer; }
-        .member-email { display: flex; align-items: center; justify-content: center; color: var(--primary); font-size: 12px; font-weight: 500; }
-        
-        .db-status-pill { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.05); }
-        .db-status-pill.online { color: #22c55e; }
-        .db-status-pill.offline { color: #ef4444; }
-        .db-status-pill.connecting { color: #f59e0b; }
-        .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
-        
-        /* New Styles */
-        .card-actions { display: flex; gap: 4px; }
-        .icon-btn-xs { width: 24px; height: 24px; border-radius: 6px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
-        .icon-btn-xs:hover { background: rgba(255,255,255,0.1); color: white; }
-        .status-btn { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); background: var(--surface); }
-        .status-btn.completed { color: var(--success); background: rgba(34, 197, 94, 0.1); }
-        .status-btn.in-progress { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
-        
-        .label-sm { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; font-weight: 500; }
-        .assignee-grid-select { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
-        .assignee-option { cursor: pointer; position: relative; }
-        .assignee-option input { position: absolute; opacity: 0; width: 0; height: 0; }
-        .assignee-card-mini { padding: 8px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 4px; transition: 0.2s; }
-        .assignee-card-mini img { width: 24px; height: 24px; border-radius: 50%; }
-        .assignee-card-mini span { font-size: 11px; font-weight: 500; }
-        .assignee-option input:checked + .assignee-card-mini { background: rgba(59, 130, 246, 0.1); border-color: var(--primary); color: var(--primary); }
-        .input-group { display: flex; flex-direction: column; }
-        
-        .sidebar aside ul { list-style: none; padding: 0; margin: 0; }
-        .sidebar aside li { 
-            padding: 12px 16px; 
-            display: flex; 
-            align-items: center; 
-            gap: 12px; 
-            cursor: pointer; 
-            border-radius: 8px; 
-            transition: 0.2s;
-            margin-bottom: 4px;
-            color: var(--text-muted);
-        }
-        .sidebar aside li:hover { background: rgba(59, 130, 246, 0.05); color: white; }
-        .sidebar aside li.active { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
-        .sidebar aside li span { font-weight: 500; font-size: 14px; }
-        .logout-item { margin-top: 20px !important; color: #ef4444 !important; opacity: 0.8; }
-        .logout-item:hover { background: rgba(239, 68, 68, 0.1) !important; opacity: 1; }
+                :root {
+                    --primary: #6366f1;
+                    --primary-hover: #4f46e5;
+                    --primary-glow: rgba(99, 102, 241, 0.4);
+                    --accent: #8b5cf6;
+                    --bg-dark: #0f172a;
+                    --bg-darker: #020617;
+                    --surface: rgba(30, 41, 59, 0.7);
+                    --border: rgba(255, 255, 255, 0.08);
+                    --text-main: #f8fafc;
+                    --text-muted: #94a3b8;
+                    --success: #10b981;
+                    --error: #ef4444;
+                    --warning: #f59e0b;
+                    --glass: rgba(255, 255, 255, 0.03);
+                    --glass-heavy: rgba(15, 23, 42, 0.8);
+                }
 
-        /* Mindspace */
-        .mind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 24px; }
-        .mind-card { padding: 24px; display: flex; flex-direction: column; gap: 12px; }
-        .mind-card-header { display: flex; justify-content: space-between; align-items: center; }
-        .mind-badge { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 700; display: flex; align-items: center; gap: 4px; }
-        .mind-badge.idea { background: rgba(20, 184, 166, 0.1); color: #14b8a6; }
-        .mind-badge.issue { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
-        .upvote-btn { background: rgba(255,255,255,0.05); color: white; border: none; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: 0.2s; }
-        .upvote-btn:hover { background: var(--primary); transform: translateY(-2px); }
-        .mind-card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); }
-        
-        /* Vault */
-        .vault-grid { display: grid; gap: 40px; }
-        .vault-section .section-title { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 20px; }
-        .resources-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-        .resource-card { padding: 16px; display: flex; align-items: center; gap: 16px; height: 80px; }
-        .res-icon { width: 48px; height: 48px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); color: var(--primary); display: flex; align-items: center; justify-content: center; }
-        .res-info { flex: 1; }
-        .res-info h4 { font-size: 15px; margin-bottom: 2px; }
-        .res-info p { font-size: 12px; color: var(--text-muted); }
-        .res-actions { display: flex; gap: 8px; }
+                * { box-sizing: border-box; }
 
-        @media (max-width: 768px) {
-            .mind-grid, .resources-list {
-                grid-template-columns: 1fr;
-            }
-            .sidebar-overlay {
-                position: fixed;
-                inset: 0;
-                background: rgba(0,0,0,0.5);
-                backdrop-filter: blur(4px);
-                z-index: 999;
-            }
-        }
+                body {
+                    background: radial-gradient(circle at top right, #1e1b4b, #020617);
+                    color: var(--text-main);
+                    font-family: 'Outfit', 'Inter', sans-serif;
+                    margin: 0;
+                    overflow: hidden;
+                }
 
-        /* Team Talk Overhaul */
-        .chat-layout { display: flex; height: calc(100vh - 180px); overflow: hidden; margin-top: 24px; }
-        .chat-sidebar { width: 300px; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: rgba(0,0,0,0.2); }
-        .sidebar-search { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); }
-        .sidebar-search input { background: transparent; border: none; font-size: 13px; color: white; width: 100%; outline: none; }
-        .chat-threads-list { flex: 1; overflow-y: auto; }
-        .thread-item { padding: 16px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; align-items: center; gap: 12px; transition: 0.2s; }
-        .thread-item:hover { background: rgba(255,255,255,0.05); }
-        .thread-item.active { background: rgba(59, 130, 246, 0.1); border-left: 3px solid var(--primary); }
-        .status-dot-sm { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-        .status-dot-sm.high { background: #ef4444; }
-        .status-dot-sm.medium { background: #f59e0b; }
-        .status-dot-sm.low { background: #3b82f6; }
-        .thread-info h4 { font-size: 14px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-        .thread-info p { font-size: 11px; color: var(--text-muted); }
+                .app-shell { display: flex; height: 100vh; overflow: hidden; }
 
-        .chat-main { flex: 1; display: flex; flex-direction: column; background: #070a0e; position: relative; }
-        .chat-header-banner { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); }
-        .banner-info { display: flex; align-items: center; gap: 12px; }
-        .banner-info h3 { font-size: 16px; font-weight: 600; }
-        .priority-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.1); }
-        .priority-tag.high { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+                /* Sidebar Aesthetics */
+                .main-sidebar {
+                    width: 280px;
+                    background: var(--glass-heavy);
+                    border-right: 1px solid var(--border);
+                    display: flex;
+                    flex-direction: column;
+                    padding: 32px 20px;
+                    backdrop-filter: blur(20px);
+                }
 
-        .chat-messages-container { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
-        .chat-bubble-row { display: flex; width: 100%; }
-        .chat-bubble-row.mine { justify-content: flex-end; }
-        .chat-bubble-content { 
-            padding: 10px 14px; 
-            border-radius: 12px; 
-            background: #1e293b; 
-            max-width: 75%; 
-            position: relative;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            animation: slideIn 0.3s ease-out;
-        }
-        .chat-bubble-row.mine .chat-bubble-content { 
-            background: #0ea5e9; 
-            border-top-right-radius: 2px;
-        }
-        .chat-bubble-row:not(.mine) .chat-bubble-content {
-            border-top-left-radius: 2px;
-        }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                .brand {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-size: 22px;
+                    font-weight: 800;
+                    margin-bottom: 48px;
+                    background: linear-gradient(to right, #fff, var(--primary));
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                }
+                .brand-icon {
+                    width: 40px;
+                    height: 40px;
+                    background: var(--primary);
+                    border-radius: 12px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    -webkit-text-fill-color: white;
+                    box-shadow: 0 0 20px var(--primary-glow);
+                }
 
-        .bubble-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 2px; }
-        .bubble-meta .author { font-size: 10px; font-weight: 700; color: #53bdeb; }
-        .chat-bubble-row.mine .author { color: #e2e8f0; }
-        .bubble-delete { opacity: 0; color: rgba(255,255,255,0.5); padding: 2px; transition: 0.2s; }
-        .chat-bubble-content:hover .bubble-delete { opacity: 1; }
-        .bubble-delete:hover { color: #ef4444; }
+                .side-nav ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+                .side-nav li {
+                    padding: 14px 16px;
+                    border-radius: 14px;
+                    display: flex;
+                    align-items: center;
+                    gap: 16px;
+                    color: var(--text-muted);
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .side-nav li:hover { background: var(--glass); color: white; transform: translateX(4px); }
+                .side-nav li.active { background: var(--primary); color: white; box-shadow: 0 8px 16px -4px var(--primary-glow); }
 
-        .chat-bubble-content .text { font-size: 14px; line-height: 1.5; color: #f8fafc; }
-        .chat-bubble-content .time { font-size: 9px; color: rgba(255,255,255,0.4); display: block; text-align: right; margin-top: 6px; }
+                .sidebar-footer { margin-top: auto; }
+                .user-pill {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 12px;
+                    border-radius: 16px;
+                    background: rgba(0,0,0,0.2);
+                }
+                .user-avatar {
+                    width: 40px; height: 40px; background: var(--accent);
+                    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+                    font-weight: 700;
+                }
+                .user-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+                .user-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .user-role { font-size: 11px; color: var(--text-muted); }
+                .logout-btn { background: none; border: none; color: var(--error); cursor: pointer; opacity: 0.6; padding: 4px; }
+                .logout-btn:hover { opacity: 1; }
 
-        .chat-input-row { padding: 16px 24px; background: rgba(255,255,255,0.03); border-top: 1px solid var(--border); display: flex; gap: 12px; align-items: center; }
-        .chat-input-row input { flex: 1; background: #1e293b; border: 1px solid var(--border); color: white; padding: 12px 20px; border-radius: 24px; outline: none; transition: 0.2s; }
-        .chat-input-row input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2); }
-        .chat-send-btn { width: 44px; height: 44px; border-radius: 50%; background: #0ea5e9; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(14, 165, 233, 0.3); transition: 0.2s; }
-        .chat-send-btn:hover { transform: scale(1.05); background: #0284c7; }
+                /* Main Content Area */
+                .main-content-area {
+                    flex: 1;
+                    padding: 32px 48px;
+                    overflow-y: auto;
+                    height: 100vh;
+                }
 
-        .chat-selection-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); text-align: center; padding: 40px; }
-        .chat-selection-placeholder h2 { color: white; margin: 16px 0 8px; }
-        .chat-empty { text-align: center; margin-top: 100px; color: var(--text-muted); }
-        .empty-icon { width: 64px; height: 64px; border-radius: 50%; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+                .view-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    margin-bottom: 40px;
+                }
+                .view-header h1 { font-size: 32px; font-weight: 800; margin: 0; }
+                .subtitle { color: var(--text-muted); margin-top: 4px; }
 
-        @media (max-width: 768px) {
-            .chat-layout { flex-direction: column; height: auto; }
-            .chat-sidebar { width: 100%; height: 200px; }
-            .chat-main { height: 500px; }
-        }
-      `}</style>
+                .status-pill {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    background: var(--glass);
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    font-size: 12px;
+                    border: 1px solid var(--border);
+                }
+                .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+                .status-pill.offline .dot { background: var(--error); }
+                .status-pill.connecting .dot { background: var(--warning); animation: pulse 1s infinite; }
+
+                @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+
+                /* Glass Panels */
+                .glass-panel {
+                    background: var(--surface);
+                    backdrop-filter: blur(16px);
+                    border: 1px solid var(--border);
+                    border-radius: 24px;
+                    padding: 24px;
+                }
+
+                .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px; }
+                .stat-card { position: relative; overflow: hidden; display: flex; align-items: center; gap: 20px; cursor: pointer; transition: transform 0.2s; }
+                .stat-icon {
+                    width: 56px; height: 56px; border-radius: 18px;
+                    display: flex; align-items: center; justify-content: center;
+                    background: rgba(255,255,255,0.05);
+                }
+                .orange .stat-icon { color: #fb923c; }
+                .purple .stat-icon { color: #a78bfa; }
+                .green .stat-icon { color: #4ade80; }
+                .stat-info h3 { font-size: 28px; margin: 0; font-weight: 800; }
+                .stat-info p { margin: 0; font-size: 14px; color: var(--text-muted); }
+                .stat-trend { position: absolute; top: 12px; right: 16px; font-size: 10px; color: var(--success); background: rgba(16, 185, 129, 0.1); padding: 4px 8px; border-radius: 10px; }
+
+                .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+                .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+                .section-head h2 { font-size: 20px; margin: 0; }
+
+                /* Task Mini List */
+                .task-list-mini { display: flex; flex-direction: column; gap: 12px; }
+                .mini-task-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 14px 18px;
+                    background: rgba(255,255,255,0.03);
+                    border-radius: 16px;
+                    transition: background 0.2s;
+                }
+                .mini-task-item:hover { background: rgba(255,255,255,0.06); }
+                .priority-dot { width: 8px; height: 8px; border-radius: 50%; }
+                .priority-dot.high { background: var(--error); box-shadow: 0 0 10px var(--error); }
+                .priority-dot.medium { background: var(--warning); }
+                .priority-dot.low { background: var(--success); }
+                .mini-task-item .title { flex: 1; font-weight: 500; }
+
+                /* TeamTalk Layout */
+                .chat-interface {
+                    display: flex;
+                    height: calc(100vh - 160px);
+                    padding: 0;
+                    overflow: hidden;
+                }
+                .chat-sidebar {
+                    width: 320px;
+                    border-right: 1px solid var(--border);
+                    display: flex;
+                    flex-direction: column;
+                }
+                .sidebar-search {
+                    padding: 20px;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    border-bottom: 1px solid var(--border);
+                }
+                .sidebar-search input { background: none; border: none; color: white; outline: none; font-size: 14px; width: 100%; }
+                .threads-list { flex: 1; overflow-y: auto; }
+                .thread-card {
+                    padding: 18px 24px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    border-bottom: 1px solid rgba(255,255,255,0.02);
+                    display: flex; justify-content: space-between; align-items: center;
+                }
+                .thread-card:hover { background: rgba(255,255,255,0.03); }
+                .thread-card.active { background: rgba(99, 102, 241, 0.1); border-left: 4px solid var(--primary); }
+                .thread-card h4 { margin: 0; font-size: 15px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .thread-card p { margin: 0; font-size: 12px; color: var(--text-muted); }
+                .unread-dot { width: 8px; height: 8px; background: var(--primary); border-radius: 50%; box-shadow: 0 0 10px var(--primary); }
+
+                .chat-main { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.1); }
+                .chat-header { padding: 18px 32px; border-bottom: 1px solid var(--border); background: var(--glass); }
+                .header-info h3 { margin: 0; font-size: 18px; }
+                .header-meta { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+                .messages-area {
+                    flex: 1;
+                    padding: 32px;
+                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 24px;
+                }
+
+                .message-row { display: flex; gap: 12px; max-width: 80%; }
+                .message-row.mine { align-self: flex-end; flex-direction: row-reverse; }
+                .msg-avatar { width: 36px; height: 36px; background: var(--primary); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; }
+                .msg-bubble-container { display: flex; flex-direction: column; gap: 4px; }
+                .message-row.mine .msg-bubble-container { align-items: flex-end; }
+                .msg-author { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
+                .msg-bubble {
+                    background: var(--glass);
+                    padding: 12px 18px;
+                    border-radius: 18px;
+                    border: 1px solid var(--border);
+                    position: relative;
+                }
+                .message-row.mine .msg-bubble {
+                    background: var(--primary);
+                    border: none;
+                    color: white;
+                }
+                .msg-bubble p { margin: 0; line-height: 1.5; font-size: 14px; }
+                .msg-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; opacity: 0.6; }
+                .msg-time { font-size: 9px; }
+                .msg-delete { background: none; border: none; color: white; cursor: pointer; padding: 2px; }
+
+                .msg-input-bar { padding: 32px; border-top: 1px solid var(--border); }
+                .input-wrapper {
+                    background: var(--glass-heavy);
+                    border: 1px solid var(--border);
+                    border-radius: 16px;
+                    padding: 8px 12px;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .input-wrapper input {
+                    flex: 1;
+                    background: none;
+                    border: none;
+                    color: white;
+                    outline: none;
+                    padding: 8px;
+                    font-size: 14px;
+                }
+                .send-btn {
+                    width: 40px; height: 40px; border-radius: 12px;
+                    background: var(--primary); border: none; color: white;
+                    cursor: pointer; display: flex; align-items: center; justify-content: center;
+                    transition: transform 0.2s;
+                }
+                .send-btn:hover { transform: scale(1.05); }
+
+                .chat-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); text-align: center; }
+                .placeholder-icon { margin-bottom: 24px; opacity: 0.2; }
+
+                /* Mindspace Grid */
+                .mind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; }
+                .mind-card { display: flex; flex-direction: column; height: 260px; transition: transform 0.2s; }
+                .mind-card:hover { transform: translateY(-4px); }
+                .mind-card h3 { margin: 16px 0 12px; font-size: 18px; }
+                .mind-card p { color: var(--text-muted); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.6; }
+                
+                .mind-meta { display: flex; justify-content: space-between; align-items: center; }
+                .mind-type-pill { font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 6px; }
+                .mind-type-pill.idea { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+                .mind-type-pill.issue { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+                .mind-date { font-size: 11px; color: var(--text-muted); }
+
+                .mind-actions { margin-top: auto; display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid var(--border); }
+                .upvote-btn { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: white; border-radius: 10px; padding: 6px 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: all 0.2s; }
+                .upvote-btn:hover { background: var(--primary); border-color: var(--primary); }
+                .author-tag { font-size: 12px; color: var(--text-muted); }
+
+                /* Common UI Components */
+                .primary-btn {
+                    background: var(--primary);
+                    color: white;
+                    border: none;
+                    padding: 12px 24px;
+                    border-radius: 14px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    transition: all 0.2s;
+                }
+                .primary-btn:hover { background: var(--primary-hover); box-shadow: 0 4px 12px var(--primary-glow); }
+                .glow-btn { box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+                .full-width { width: 100%; justify-content: center; }
+
+                .icon-btn-sm { background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+                .icon-btn-sm.circle { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.05); }
+                .icon-btn-sm.circle:hover { background: var(--primary); color: white; }
+
+                .text-btn { background: none; border: none; color: var(--primary); font-weight: 600; cursor: pointer; }
+
+                /* Modals & Forms */
+                .modal-overlay { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+                .modal-content { width: 100%; max-width: 480px; padding: 32px; }
+                .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+                .modal-header h3 { margin: 0; font-size: 24px; font-weight: 800; }
+
+                .form-stack { display: flex; flex-direction: column; gap: 20px; }
+                .input-group { display: flex; flex-direction: column; gap: 8px; }
+                .input-group label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+                .input-group input, .input-group textarea, .input-group select {
+                    background: rgba(0,0,0,0.2);
+                    border: 1px solid var(--border);
+                    padding: 14px;
+                    border-radius: 12px;
+                    color: white;
+                    outline: none;
+                }
+                .input-group input:focus, .input-group textarea:focus { border-color: var(--primary); }
+
+                /* Loading Screen */
+                .loading-screen { height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-darker); }
+                .loader-box { text-align: center; }
+                .loader-orbit {
+                    width: 60px; height: 60px; border: 4px solid var(--glass); border-top-color: var(--primary);
+                    border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;
+                }
+                .loader-text { font-size: 24px; font-weight: 800; letter-spacing: 2px; background: linear-gradient(to right, #fff, var(--primary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+                @keyframes spin { to { transform: rotate(360deg); } }
+
+                /* Toasts */
+                .toast-container {
+                    position: fixed; bottom: 32px; right: 32px;
+                    padding: 16px 20px; z-index: 5000;
+                    display: flex; align-items: center; gap: 16px;
+                    background: var(--glass-heavy);
+                    backdrop-filter: blur(20px);
+                    border: 1px solid var(--border);
+                    border-radius: 16px;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+                    min-width: 300px;
+                }
+                .toast-icon { padding: 8px; border-radius: 10px; background: var(--primary); color: white; }
+                .toast-container.error .toast-icon { background: var(--error); }
+                .toast-container.success .toast-icon { background: var(--success); }
+                .toast-content { flex: 1; }
+                .toast-content p { margin: 0; font-size: 14px; font-weight: 600; }
+                .toast-close { background: none; border: none; color: var(--text-muted); cursor: pointer; }
+
+                .fade-in { animation: fadeIn 0.4s ease-out; }
+                @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+                /* New Tasks Board Styles */
+                .tasks-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; min-height: 600px; }
+                .board-column { display: flex; flex-direction: column; gap: 20px; }
+                .column-header { display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 12px; }
+                .column-header h3 { font-size: 13px; font-weight: 800; margin: 0; color: var(--text-muted); letter-spacing: 1px; }
+                .column-header .dot { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; }
+                .column-header.todo .dot { background: var(--primary); }
+                .column-header.in-progress .dot { background: var(--warning); }
+                .column-header.completed .dot { background: var(--success); }
+                .column-header .count { margin-left: auto; font-size: 11px; background: rgba(0,0,0,0.2); padding: 2px 8px; border-radius: 20px; }
+
+                .column-cards { display: flex; flex-direction: column; gap: 16px; }
+                .task-item-card { padding: 20px; display: flex; flex-direction: column; gap: 12px; position: relative; }
+                .card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+                .priority-tag { font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,0.05); }
+                .priority-tag.high { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+                .card-actions { display: flex; gap: 8px; }
+                .card-action-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; }
+                .card-action-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+                .card-action-btn.delete:hover { color: var(--error); }
+                .task-item-card h4 { margin: 0; font-size: 16px; font-weight: 700; }
+                .task-item-card p { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+                .card-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+                .card-assignee { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+                .discuss-trigger { background: var(--glass); border: 1px solid var(--border); color: var(--primary); width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
+                .discuss-trigger:hover { background: var(--primary); color: white; }
+
+                /* New Members Directory Styles */
+                .members-directory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 32px; }
+                .member-status-card { overflow: hidden; position: relative; padding: 0 !important; }
+                .member-cover { height: 80px; background: linear-gradient(to right, var(--primary), var(--accent)); opacity: 0.2; }
+                .member-card-content { padding: 24px; text-align: center; margin-top: -50px; }
+                .member-avatar-large { width: 80px; height: 80px; border-radius: 20px; background: var(--bg-darker); border: 4px solid var(--surface); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; color: var(--primary); box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
+                .member-status-card h3 { margin: 0 0 4px; font-size: 18px; }
+                .member-role { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+                .member-quick-stats { display: flex; justify-content: center; gap: 32px; margin: 24px 0; padding: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+                .q-stat { display: flex; flex-direction: column; }
+                .q-stat label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+                .q-stat span { font-size: 18px; font-weight: 700; }
+                .secondary-btn-sm { background: var(--glass); border: 1px solid var(--border); color: white; padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; margin: 0 auto; transition: all 0.2s; }
+                .secondary-btn-sm:hover { background: rgba(255,255,255,0.1); }
+
+                .input-row { display: flex; gap: 16px; }
+                .flex-1 { flex: 1; }
+                .text-success { color: var(--success) !important; }
+
+                /* Scrollbar */
+                ::-webkit-scrollbar { width: 6px; }
+                ::-webkit-scrollbar-track { background: transparent; }
+                ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+                ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+            `}</style>
         </div>
     );
 }
